@@ -1,0 +1,11 @@
+# requirements.txt
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pydantic
+passlib[bcrypt]
+python-jose[cryptography]
+pytest
+httpx
