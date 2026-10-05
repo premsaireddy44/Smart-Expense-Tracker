@@ -43,3 +43,75 @@ def login(credentials: schemas.UserCreate, db: Session = Depends(get_db)):
 @app.get("/me", response_model=schemas.UserOut)
 def read_current_user(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+@app.post("/transactions", response_model=schemas.TransactionOut)
+def create_transaction(
+    transaction: schemas.TransactionCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    new_transaction = models.Transaction(
+        description=transaction.description,
+        amount=transaction.amount,
+        type=transaction.type,
+        category_id=transaction.category_id,
+        owner_id=current_user.id,
+    )
+    db.add(new_transaction)
+    db.commit()
+    db.refresh(new_transaction)
+    return new_transaction
+
+
+@app.get("/transactions", response_model=list[schemas.TransactionOut])
+def list_transactions(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.Transaction).filter(models.Transaction.owner_id == current_user.id).all()
+
+
+
+@app.put("/transactions/{transaction_id}", response_model=schemas.TransactionOut)
+def update_transaction(
+    transaction_id: int,
+    updated: schemas.TransactionCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    transaction = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
+
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    if transaction.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this transaction")
+
+    transaction.description = updated.description
+    transaction.amount = updated.amount
+    transaction.type = updated.type
+    transaction.category_id = updated.category_id
+
+    db.commit()
+    db.refresh(transaction)
+    return transaction
+
+
+@app.delete("/transactions/{transaction_id}")
+def delete_transaction(
+    transaction_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    transaction = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
+
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    if transaction.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this transaction")
+
+    db.delete(transaction)
+    db.commit()
+    return {"detail": "Transaction deleted successfully"}
