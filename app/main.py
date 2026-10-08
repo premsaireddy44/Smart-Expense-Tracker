@@ -115,3 +115,49 @@ def delete_transaction(
     db.delete(transaction)
     db.commit()
     return {"detail": "Transaction deleted successfully"}
+
+
+
+@app.post("/budgets", response_model=schemas.BudgetOut)
+def create_budget(
+    budget: schemas.BudgetCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    category = db.query(models.Category).filter(models.Category.id == budget.category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    existing = db.query(models.Budget).filter(
+        models.Budget.owner_id == current_user.id,
+        models.Budget.category_id == budget.category_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Budget for this category already exists")
+
+    new_budget = models.Budget(
+        ratio_percent=budget.ratio_percent,
+        category_id=budget.category_id,
+        owner_id=current_user.id,
+    )
+    db.add(new_budget)
+    db.commit()
+    db.refresh(new_budget)
+    return new_budget
+
+
+@app.get("/budgets", response_model=list[schemas.BudgetOut])
+def list_budgets(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.Budget).filter(models.Budget.owner_id == current_user.id).all()
+
+
+
+@app.get("/categories", response_model=list[schemas.CategoryOut])
+def list_categories(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.Category).order_by(models.Category.name).all()

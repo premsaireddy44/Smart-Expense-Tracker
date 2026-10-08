@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from datetime import datetime
 from typing import Optional
 from app.models import TransactionType
@@ -30,6 +30,13 @@ class TransactionCreate(BaseModel):
     type: TransactionType
     category_id: Optional[int] = None
 
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_positive(cls, value):
+        if value <= 0:
+            raise ValueError("Amount must be greater than 0")
+        return value
+
 
 class TransactionOut(BaseModel):
     id: int
@@ -46,6 +53,13 @@ class TransactionOut(BaseModel):
 class BudgetCreate(BaseModel):
     ratio_percent: float
     category_id: int
+
+    @field_validator("ratio_percent")
+    @classmethod
+    def ratio_must_be_valid(cls, value):
+        if value <= 0 or value > 100:
+            raise ValueError("Ratio must be between 0 and 100")
+        return value
 
 
 class BudgetOut(BaseModel):
