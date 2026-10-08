@@ -69,3 +69,20 @@ class BudgetOut(BaseModel):
 
     class Config:
         from_attributes = True
+        
+        
+class CategorySpend(BaseModel):
+    category: str
+    amount: float
+    percent_of_income: float
+    budget_ratio: Optional[float] = None
+    status: str
+
+
+class SummaryOut(BaseModel):
+    total_income: float
+    total_expense: float
+    savings: float
+    savings_rate_percent: float
+    categories: list[CategorySpend]
+    alerts: list[str]

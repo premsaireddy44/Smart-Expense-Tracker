@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import Base, engine, get_db
 from app import models, schemas, auth
 app = FastAPI(title="Smart Expense Tracker API")
@@ -161,3 +162,96 @@ def list_categories(
     db: Session = Depends(get_db),
 ):
     return db.query(models.Category).order_by(models.Category.name).all()
+
+
+
+def total_by_type(db: Session, user_id: int, tx_type: models.TransactionType) -> float:
+    total = (
+        db.query(func.coalesce(func.sum(models.Transaction.amount), 0))
+        .filter(
+            models.Transaction.owner_id == user_id,
+            models.Transaction.type == tx_type,
+        )
+        .scalar()
+    )
+    return float(total)
+
+
+
+@app.get("/summary", response_model=schemas.SummaryOut)
+def get_summary(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 1. Big totals
+    income = total_by_type(db, current_user.id, models.TransactionType.income)
+    expense = total_by_type(db, current_user.id, models.TransactionType.expense)
+    savings = income - expense
+    savings_rate = savings / income * 100 if income > 0 else 0.0
+
+    # 2. Lookup tables: {1: "Food", ...} and {1: 30.0, ...}
+    names = {c.id: c.name for c in db.query(models.Category).all()}
+    budgets = {
+        b.category_id: b.ratio_percent
+        for b in db.query(models.Budget).filter(models.Budget.owner_id == current_user.id).all()
+    }
+
+    # 3. Spending per category, biggest first
+    total_spent = func.sum(models.Transaction.amount)
+    rows = (
+        db.query(models.Transaction.category_id, total_spent)
+        .filter(
+            models.Transaction.owner_id == current_user.id,
+            models.Transaction.type == models.TransactionType.expense,
+        )
+        .group_by(models.Transaction.category_id)
+        .order_by(total_spent.desc())
+        .all()
+    )
+
+    # 4. Build the report
+    categories = []
+    alerts = []
+    for category_id, amount in rows:
+        amount = float(amount)
+        name = names.get(category_id, "Uncategorized")
+        ratio = budgets.get(category_id)
+        percent = amount / income * 100 if income > 0 else 0.0
+
+        if ratio is None:
+            status = "no_budget"
+        elif income == 0:
+            status = "no_income"
+        elif percent > ratio:
+            status = "over"
+            alerts.append(f"{name}: {percent:.1f}% of income, over your {ratio:.0f}% budget")
+        elif percent >= 0.8 * ratio:
+            status = "warning"
+            alerts.append(f"{name}: {percent:.1f}% of income, close to your {ratio:.0f}% budget")
+        else:
+            status = "ok"
+
+        categories.append(
+            schemas.CategorySpend(
+                category=name,
+                amount=round(amount, 2),
+                percent_of_income=round(percent, 1),
+                budget_ratio=ratio,
+                status=status,
+            )
+        )
+
+    if income == 0 and expense > 0:
+        alerts.append("Add your income to see budget alerts")
+
+    return schemas.SummaryOut(
+        total_income=round(income, 2),
+        total_expense=round(expense, 2),
+        savings=round(savings, 2),
+        savings_rate_percent=round(savings_rate, 1),
+        categories=categories,
+        alerts=alerts,
+    )
+    
+    
+    
