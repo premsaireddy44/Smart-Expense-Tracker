@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException
+from datetime import datetime
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import Base, engine, get_db
@@ -164,28 +166,44 @@ def list_categories(
     return db.query(models.Category).order_by(models.Category.name).all()
 
 
+def month_range(year: int, month: int):
+    start = datetime(year, month, 1)
+    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    return start, end
 
-def total_by_type(db: Session, user_id: int, tx_type: models.TransactionType) -> float:
+
+def total_by_type(db: Session, user_id: int, tx_type, start, end):
     total = (
         db.query(func.coalesce(func.sum(models.Transaction.amount), 0))
         .filter(
             models.Transaction.owner_id == user_id,
             models.Transaction.type == tx_type,
+            models.Transaction.created_at >= start,
+            models.Transaction.created_at < end,
         )
         .scalar()
     )
     return float(total)
 
 
-
 @app.get("/summary", response_model=schemas.SummaryOut)
 def get_summary(
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
+    # 0. Which month? Default = current month
+    if (year is None) != (month is None):
+        raise HTTPException(status_code=400, detail="Send both year and month, or neither")
+    if year is None:
+        now = datetime.now()
+        year, month = now.year, now.month
+    start, end = month_range(year, month)
+
     # 1. Big totals
-    income = total_by_type(db, current_user.id, models.TransactionType.income)
-    expense = total_by_type(db, current_user.id, models.TransactionType.expense)
+    income = total_by_type(db, current_user.id, models.TransactionType.income, start, end)
+    expense = total_by_type(db, current_user.id, models.TransactionType.expense, start, end)
     savings = income - expense
     savings_rate = savings / income * 100 if income > 0 else 0.0
 
@@ -196,13 +214,15 @@ def get_summary(
         for b in db.query(models.Budget).filter(models.Budget.owner_id == current_user.id).all()
     }
 
-    # 3. Spending per category, biggest first
+    # 3. Spending per category in this month, biggest first
     total_spent = func.sum(models.Transaction.amount)
     rows = (
         db.query(models.Transaction.category_id, total_spent)
         .filter(
             models.Transaction.owner_id == current_user.id,
             models.Transaction.type == models.TransactionType.expense,
+            models.Transaction.created_at >= start,
+            models.Transaction.created_at < end,
         )
         .group_by(models.Transaction.category_id)
         .order_by(total_spent.desc())
@@ -245,6 +265,7 @@ def get_summary(
         alerts.append("Add your income to see budget alerts")
 
     return schemas.SummaryOut(
+        period=f"{year}-{month:02d}",
         total_income=round(income, 2),
         total_expense=round(expense, 2),
         savings=round(savings, 2),
@@ -252,6 +273,5 @@ def get_summary(
         categories=categories,
         alerts=alerts,
     )
-    
     
     
