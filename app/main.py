@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import Base, engine, get_db
 from app import models, schemas, auth
+from app.categorizer import suggest_category
+
+
 app = FastAPI(title="Smart Expense Tracker API")
 
 Base.metadata.create_all(bind=engine)
@@ -48,17 +51,30 @@ def read_current_user(current_user: models.User = Depends(auth.get_current_user)
     return current_user
 
 
+
 @app.post("/transactions", response_model=schemas.TransactionOut)
 def create_transaction(
     transaction: schemas.TransactionCreate,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
+    category_id = transaction.category_id
+
+    if category_id is not None:
+        if not db.query(models.Category).filter(models.Category.id == category_id).first():
+            raise HTTPException(status_code=404, detail="Category not found")
+    else:
+        name = suggest_category(transaction.description, transaction.type)
+        if name:
+            match = db.query(models.Category).filter(models.Category.name == name).first()
+            if match:
+                category_id = match.id
+
     new_transaction = models.Transaction(
         description=transaction.description,
         amount=transaction.amount,
         type=transaction.type,
-        category_id=transaction.category_id,
+        category_id=category_id,
         owner_id=current_user.id,
     )
     db.add(new_transaction)
