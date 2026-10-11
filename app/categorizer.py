@@ -40,7 +40,7 @@ INCOME_CATEGORIES = {"Salary", "Freelance Income", "Investments"}
 
 def clean(text: str) -> str:
     text = text.lower()
-    text = re.sub(r"['\u2019]", "", text)          # Domino's -> dominos
+    text = re.sub(r"['’]", "", text)          # Domino's -> dominos
     text = re.sub(r"[^a-z0-9]+", " ", text)        # punctuation -> spaces
     return f" {text.strip()} "                     # padded so whole words match
 

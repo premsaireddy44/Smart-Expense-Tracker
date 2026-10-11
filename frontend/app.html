@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Expense Tracker</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Icons. Each <symbol> is drawn once here and reused with <use href="#i-name">. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20v-7M12 20V5M18 20v-10"/></symbol>
+    <symbol id="i-expense" viewBox="0 0 24 24"><path d="M7 17L17 7M8 7h9v9"/></symbol>
+    <symbol id="i-income" viewBox="0 0 24 24"><path d="M17 7L7 17M16 17H7V8"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4L2.5 20h19L12 4zM12 10v5M12 17.5h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark"><svg class="icon"><use href="#i-bars"/></svg></span>
+        <span class="brand-name">Smart Expense Tracker</span>
+      </div>
+      <span class="spacer"></span>
+      <span id="user-email" class="user-email"></span>
+      <button id="logout" class="btn" type="button"><svg class="icon"><use href="#i-logout"/></svg>Log out</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <div id="banner" class="banner" role="alert" hidden>
+      <span id="banner-text"></span>
+      <button id="banner-retry" class="btn" type="button">Try again</button>
+    </div>
+
+    <section class="month-row" aria-label="Choose month">
+      <button id="month-prev" class="icon-btn bordered" type="button" aria-label="Previous month"><svg class="icon"><use href="#i-left"/></svg></button>
+      <h1 id="month-title" class="month-title" aria-live="polite"></h1>
+      <button id="month-next" class="icon-btn bordered" type="button" aria-label="Next month"><svg class="icon"><use href="#i-right"/></svg></button>
+    </section>
+
+    <section class="tiles" aria-label="Add something">
+      <button id="tile-expense" class="tile tile-expense" type="button">
+        <span class="tile-icon"><svg class="icon"><use href="#i-expense"/></svg></span>
+        <span class="tile-text"><span class="tile-title">Add expense</span><span class="tile-sub">Money you spent</span></span>
+      </button>
+      <button id="tile-income" class="tile tile-income" type="button">
+        <span class="tile-icon"><svg class="icon"><use href="#i-income"/></svg></span>
+        <span class="tile-text"><span class="tile-title">Add income</span><span class="tile-sub">Money you received</span></span>
+      </button>
+      <button id="tile-budget" class="tile tile-budget" type="button">
+        <span class="tile-icon"><svg class="icon"><use href="#i-target"/></svg></span>
+        <span class="tile-text"><span class="tile-title">Set a budget</span><span class="tile-sub">A share of income for a category</span></span>
+      </button>
+    </section>
+
+    <form id="quick-form" class="quick" autocomplete="off">
+      <label for="quick-input" class="sr-only">Quick add</label>
+      <input id="quick-input" type="text" placeholder='Quick add: type "Swiggy 250" or "+50000 salary", then press Enter'>
+      <button class="btn btn-primary" type="submit">Review</button>
+    </form>
+
+    <ul id="alerts" class="alerts" aria-label="Budget alerts"></ul>
+
+    <section class="stats" aria-label="This month at a glance">
+      <div class="stat stat-income">
+        <div class="stat-label">Income</div>
+        <div id="stat-income" class="stat-value num">-</div>
+      </div>
+      <div class="stat stat-spent">
+        <div class="stat-label">Spent</div>
+        <div id="stat-spent" class="stat-value num">-</div>
+      </div>
+      <div class="stat stat-saved">
+        <div class="stat-label">Saved</div>
+        <div id="stat-saved" class="stat-value num">-</div>
+        <div id="stat-note" class="stat-note"></div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <section class="panel" aria-labelledby="cats-title">
+        <div class="panel-head">
+          <h2 id="cats-title">Where your money went</h2>
+          <span class="panel-sub">Share of income. The dark mark is your budget.</span>
+        </div>
+        <ul id="cats" class="cats"></ul>
+        <p id="cats-empty" class="empty" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="trend-title">
+        <div class="panel-head">
+          <h2 id="trend-title">Last 6 months</h2>
+        </div>
+        <div class="chart-wrap"><canvas id="trend-canvas" role="img" aria-label="Bar chart of income and spending for the last six months"></canvas></div>
+        <p id="trend-empty" class="empty" hidden>Your chart appears here once you add a few transactions.</p>
+      </section>
+    </div>
+
+    <div class="grid-2 wide-left">
+      <section id="tx-panel" class="panel" aria-labelledby="tx-heading">
+        <div class="panel-head">
+          <h2 id="tx-heading">Transactions</h2>
+          <div class="seg" role="group" aria-label="Filter transactions">
+            <button type="button" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" data-filter="expense" aria-pressed="false">Expenses</button>
+            <button type="button" data-filter="income" aria-pressed="false">Income</button>
+          </div>
+        </div>
+        <ul id="txs" class="txs"></ul>
+        <p id="txs-empty" class="empty" hidden></p>
+        <button id="tx-more" class="btn more" type="button" hidden>Show more</button>
+      </section>
+
+      <section class="panel" aria-labelledby="budgets-title">
+        <div class="panel-head">
+          <h2 id="budgets-title">Your budgets</h2>
+        </div>
+        <ul id="budgets" class="budgets"></ul>
+        <p id="budgets-empty" class="empty" hidden>No budgets yet. Pick a category and a share of your income, and you'll get a warning before you overspend.</p>
+      </section>
+    </div>
+  </main>
+
+  <!-- Add / edit a transaction -->
+  <dialog id="tx-dialog" aria-labelledby="tx-title">
+    <form id="tx-form" class="dialog-body" novalidate>
+      <h2 id="tx-title">Add expense</h2>
+      <div class="seg" role="group" aria-label="Type">
+        <button type="button" data-type="expense" aria-pressed="true">Expense</button>
+        <button type="button" data-type="income" aria-pressed="false">Income</button>
+      </div>
+      <label class="field">What was it for?
+        <input id="tx-desc" type="text" maxlength="200" autocomplete="off" placeholder="For example: Swiggy dinner">
+      </label>
+      <label class="field">Amount
+        <span class="money-input"><span id="tx-currency"></span><input id="tx-amount" type="number" inputmode="decimal" step="0.01" min="0.01" placeholder="0.00"></span>
+      </label>
+      <label class="field">Category
+        <input id="tx-cat" type="text" list="cat-list" autocomplete="off" placeholder="Start typing, for example Food">
+      </label>
+      <p id="tx-cat-note" class="note" aria-live="polite"></p>
+      <label class="field">Date
+        <input id="tx-date" type="date">
+      </label>
+      <p id="tx-error" class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="tx-cancel" class="btn btn-quiet" type="button">Cancel</button>
+        <button id="tx-save" class="btn btn-primary" type="submit">Save expense</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Set / edit a budget -->
+  <dialog id="budget-dialog" aria-labelledby="budget-title">
+    <form id="budget-form" class="dialog-body" novalidate>
+      <h2 id="budget-title">Set a budget</h2>
+      <label class="field">Category
+        <input id="budget-cat" type="text" list="budget-cat-list" autocomplete="off" placeholder="Start typing, for example Food">
+      </label>
+      <label class="field">Share of your income (%)
+        <input id="budget-ratio" type="number" inputmode="decimal" min="1" max="100" step="0.5" placeholder="For example 30">
+      </label>
+      <p id="budget-note" class="note" aria-live="polite"></p>
+      <p id="budget-error" class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="budget-cancel" class="btn btn-quiet" type="button">Cancel</button>
+        <button id="budget-save" class="btn btn-primary" type="submit">Save budget</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Are you sure? -->
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <form method="dialog" class="dialog-body">
+      <h2 id="confirm-title">Delete?</h2>
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button class="btn btn-quiet" value="no">Cancel</button>
+        <button id="confirm-yes" class="btn btn-danger" value="yes">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <datalist id="cat-list"></datalist>
+  <datalist id="budget-cat-list"></datalist>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <!-- Chart.js, loaded from the internet. If it can't load, everything else still works. -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

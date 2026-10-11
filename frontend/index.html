@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in - Smart Expense Tracker</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20v-7M12 20V5M18 20v-10"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></symbol>
+  </svg>
+
+  <div class="auth">
+    <aside class="auth-side">
+      <div class="brand">
+        <span class="brand-mark"><svg class="icon"><use href="#i-bars"/></svg></span>
+        <span class="brand-name">Smart Expense Tracker</span>
+      </div>
+      <h1>Know where your money goes.</h1>
+      <ul class="auth-points">
+        <li><svg class="icon"><use href="#i-check"/></svg><span>Type "Swiggy 250" and the category is picked for you.</span></li>
+        <li><svg class="icon"><use href="#i-check"/></svg><span>Give each category a share of your income.</span></li>
+        <li><svg class="icon"><use href="#i-check"/></svg><span>Get a warning before you overspend, not after.</span></li>
+      </ul>
+    </aside>
+
+    <main class="auth-main">
+      <form id="auth-form" class="auth-card" novalidate>
+        <div id="notice" class="notice" role="status" hidden></div>
+        <h2 id="auth-title">Log in</h2>
+
+        <div class="seg" role="group" aria-label="Choose log in or create account">
+          <button type="button" id="mode-login" aria-pressed="true">Log in</button>
+          <button type="button" id="mode-register" aria-pressed="false">Create account</button>
+        </div>
+
+        <label class="field">Email
+          <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
+        </label>
+
+        <label class="field">Password
+          <span class="pw-row">
+            <input id="password" type="password" autocomplete="current-password" required>
+            <button type="button" id="pw-toggle" class="pw-toggle" aria-controls="password">Show</button>
+          </span>
+        </label>
+        <p id="pw-hint" class="note" hidden>Use at least 8 characters.</p>
+
+        <p id="auth-error" class="error" role="alert"></p>
+        <button type="submit" id="auth-submit" class="btn btn-primary">Log in</button>
+      </form>
+    </main>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>
