@@ -1,13 +1,12 @@
-# requirements.txt
 fastapi
 uvicorn[standard]
 sqlalchemy
 psycopg2-binary
 python-dotenv
-pydantic
+pydantic[email]
 passlib[bcrypt]
 bcrypt==4.0.1
 python-jose[cryptography]
+pandas
 pytest
 httpx
-pydantic[email]

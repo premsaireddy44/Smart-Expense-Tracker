@@ -11,6 +11,7 @@
   --muted: #5a6672;
   --line: #dde0db;
   --line-strong: #c5cac3;
+  --input-border: #7f8982;   /* 3.6:1 against white, so form boxes are easy to see */
 
   --accent: #0e6b57;
   --accent-ink: #0a4f40;
@@ -21,7 +22,7 @@
   --expense-soft: #f8e8e4;
 
   --warn: #946010;
-  --warn-bar: #c98a1e;
+  --warn-bar: #a56c0e;
   --warn-ink: #6b4408;
   --warn-soft: #f8eeda;
 
@@ -122,7 +123,7 @@ button { cursor: pointer; }
 .month-title { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
 
 /* ---------- Action tiles ---------- */
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .tile {
   display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
   min-height: 152px; padding: 22px; text-align: left;
@@ -140,12 +141,14 @@ button { cursor: pointer; }
 .tile-income:hover { border-color: var(--accent); }
 .tile-budget .tile-icon { background: #e8ebee; color: var(--ink); }
 .tile-budget:hover { border-color: var(--ink); }
+.tile-savings .tile-icon { background: var(--warn-soft); color: var(--warn-ink); }
+.tile-savings:hover { border-color: var(--warn); }
 
 /* ---------- Quick add ---------- */
 .quick {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 8px 8px 18px;
-  background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px;
+  background: var(--surface); border: 1.5px solid var(--input-border); border-radius: 14px;
 }
 .quick:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .quick input {
@@ -204,8 +207,19 @@ button { cursor: pointer; }
 .is-warning .flag { color: var(--warn); }
 .is-over .flag { color: var(--expense); }
 
-/* ---------- Chart ---------- */
-.chart-wrap { position: relative; height: 270px; }
+/* ---------- 6-month chart (plain boxes, no library) ---------- */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 14px; color: var(--muted); font-size: 14px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.dot-income { background: var(--accent); }
+.dot-expense { background: var(--expense); }
+.trend { display: grid; gap: 12px; height: 240px; }
+.trend-col { display: flex; flex-direction: column; min-width: 0; }
+.trend-bars { flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 4px; border-bottom: 1.5px solid var(--line-strong); }
+.trend-bar { width: 38%; max-width: 30px; min-height: 2px; border-radius: 4px 4px 0 0; }
+.trend-income { background: var(--accent); }
+.trend-spent { background: var(--expense); }
+.trend-label { padding-top: 8px; text-align: center; color: var(--muted); font-size: 14px; }
 
 /* ---------- Segmented control ---------- */
 .seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
@@ -256,7 +270,7 @@ dialog::backdrop { background: rgba(20, 30, 40, 0.45); }
 .field { display: grid; gap: 6px; font-size: 15px; font-weight: 600; }
 .field input {
   width: 100%; min-height: 48px; padding: 0 14px;
-  border: 1.5px solid var(--line-strong); border-radius: 10px;
+  border: 1.5px solid var(--input-border); border-radius: 10px;
   background: #fff; font-size: 17px; font-weight: 400;
 }
 .field input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -292,8 +306,8 @@ dialog::backdrop { background: rgba(20, 30, 40, 0.45); }
 .auth-points { list-style: none; padding: 0; display: grid; gap: 16px; max-width: 34ch; font-size: 17px; }
 .auth-points li { display: flex; gap: 12px; align-items: flex-start; }
 .auth-points .icon { margin-top: 3px; }
-.auth-main { display: grid; place-items: center; padding: 32px 24px; }
-.auth-card { width: min(400px, 100%); display: grid; gap: 18px; }
+.auth-main { display: flex; flex-direction: column; padding: 32px 24px 20px; }
+.auth-card { width: min(400px, 100%); display: grid; gap: 18px; margin: auto; }
 .auth-card h2 { font-size: 26px; font-weight: 700; }
 .auth-card .seg { display: flex; }
 .auth-card .seg button { flex: 1; }
@@ -311,6 +325,7 @@ dialog::backdrop { background: rgba(20, 30, 40, 0.45); }
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .grid-2, .grid-2.wide-left { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 760px) {
@@ -348,3 +363,53 @@ dialog::backdrop { background: rgba(20, 30, 40, 0.45); }
   .topbar .brand-name { font-size: 0.95rem; }
   .topbar .btn { padding-inline: 0.75rem; }
 }
+
+/* ---------- Login page: how it works ---------- */
+.auth-steps { list-style: none; padding: 0; display: grid; gap: 16px; max-width: 40ch; font-size: 17px; counter-reset: step; }
+.auth-steps li { display: flex; gap: 14px; align-items: flex-start; counter-increment: step; }
+.auth-steps li::before {
+  content: counter(step); flex: none; display: grid; place-items: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #fff; color: var(--accent-ink); font-weight: 700; font-size: 15px;
+}
+.auth-steps strong { display: block; }
+.auth-steps span { opacity: 0.95; }
+.auth-side h1 { margin-bottom: 0; }
+.auth-lead { max-width: 40ch; font-size: 18px; }
+
+/* ---------- Checkbox row (age confirmation) ---------- */
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
+.check input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--accent); }
+.check a { color: var(--accent-ink); font-weight: 600; }
+
+/* ---------- Skip link (keyboard users) ---------- */
+.skip-link {
+  position: absolute; left: 12px; top: -60px; z-index: 100;
+  padding: 10px 16px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 600;
+}
+.skip-link:focus { top: 12px; }
+
+/* ---------- Footer ---------- */
+.site-footer { margin: 28px auto 0; max-width: 1120px; padding: 0 20px 40px; color: var(--muted); font-size: 14px; display: grid; gap: 6px; }
+.auth-main .site-footer { padding: 0; margin: 24px 0 0; }
+.site-footer a, .link-btn { color: var(--accent-ink); font-weight: 600; }
+.link-btn { background: none; border: 0; padding: 0; text-decoration: underline; font-size: 14px; }
+.link-btn.danger { color: var(--expense-ink); }
+
+/* ---------- Savings goal panel ---------- */
+.goal-line { font-weight: 600; margin-bottom: 4px; }
+.goal-bar { position: relative; height: 14px; margin: 12px 0 8px; border-radius: 7px; background: #eceeea; }
+.goal-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 7px; background: var(--accent); }
+.goal-ok .goal-fill { background: var(--accent); }
+.goal-warning .goal-fill { background: var(--warn-bar); }
+.goal-over .goal-fill { background: var(--expense); }
+.goal-meta { color: var(--muted); font-size: 15px; }
+.goal-meta strong { color: var(--ink); }
+
+/* ---------- Privacy page ---------- */
+.doc { max-width: 760px; margin: 0 auto; padding: 32px 20px 0; display: grid; gap: 14px; }
+.doc h1 { font-size: 32px; margin-bottom: 6px; }
+.doc h2 { font-size: 21px; margin-top: 18px; }
+.doc ul { padding-left: 22px; display: grid; gap: 6px; }
+.doc a { color: var(--accent-ink); font-weight: 600; }
+.doc .back { display: inline-block; margin-bottom: 8px; }

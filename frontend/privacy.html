@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy and data deletion - Smart Expense Tracker</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <main id="main" class="doc">
+    <a class="back" href="/">&larr; Back to the app</a>
+    <h1>Privacy and data deletion</h1>
+    <p>Smart Expense Tracker is a personal portfolio project. Please do not enter anything you would not want a demo project to hold. This page explains, in plain words, what the app stores and how to get it erased.</p>
+
+    <h2>What we store</h2>
+    <ul>
+      <li>Your email address.</li>
+      <li>Your password, stored only as a scrambled hash. Nobody, including the owner, can read it.</li>
+      <li>The transactions, budgets and savings goal you add.</li>
+    </ul>
+
+    <h2>What we do not store</h2>
+    <ul>
+      <li>No bank, card or UPI details. The app never asks for them.</li>
+      <li>No advertising or tracking cookies, and no analytics.</li>
+    </ul>
+
+    <h2>Your login on this device</h2>
+    <p>When you log in, a login token is saved in your browser so you stay logged in. Logging out removes it.</p>
+
+    <h2>Age</h2>
+    <p>The app is for people aged 18 and over. We do not knowingly collect data from anyone younger. If you believe a young person has signed up, write to the contact below and the account will be erased.</p>
+
+    <h2>Delete your data</h2>
+    <p><strong>The fastest way:</strong> log in, scroll to the bottom of the dashboard, choose <em>Delete my account and data</em>, and enter your password. Your account, transactions, budgets and savings goal are erased straight away. This cannot be undone.</p>
+    <p><strong>If you cannot log in:</strong> email the contact below from the address you registered with and ask for deletion. Your data will be erased within 30 days.</p>
+
+    <h2>Who runs this</h2>
+    <p id="owner-line"></p>
+  </main>
+
+  <footer id="site-footer" class="site-footer"></footer>
+
+  <script src="js/common.js"></script>
+  <script>
+    document.querySelector('#owner-line').textContent =
+      `Run by ${SITE.owner}, ${SITE.location}. Contact: ${SITE.contact}.`;
+  </script>
+</body>
+</html>

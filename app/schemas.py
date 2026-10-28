@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, computed_field, field_validator
 
 from app.categorizer import INCOME_CATEGORIES
 from app.models import TransactionType
@@ -11,6 +11,11 @@ from app.models import TransactionType
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def email_to_lowercase(cls, value):
+        return str(value).strip().lower()
 
     @field_validator("password")
     @classmethod
@@ -26,13 +31,17 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+    @field_validator("email")
+    @classmethod
+    def email_to_lowercase(cls, value):
+        return str(value).strip().lower()
+
 
 class UserOut(BaseModel):
     id: int
     email: EmailStr
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------- Categories ----------
@@ -45,8 +54,7 @@ class CategoryOut(BaseModel):
     def kind(self) -> str:
         return "income" if self.name in INCOME_CATEGORIES else "expense"
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SuggestionOut(BaseModel):
@@ -95,8 +103,7 @@ class TransactionOut(BaseModel):
     created_at: datetime
     category_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------- Budgets ----------
@@ -130,8 +137,29 @@ class BudgetOut(BaseModel):
     ratio_percent: float
     category_id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------- Savings goal ----------
+class SavingsGoalIn(BaseModel):
+    ratio_percent: float
+
+    @field_validator("ratio_percent")
+    @classmethod
+    def ratio_must_be_valid(cls, value):
+        return _check_ratio(value)
+
+
+class SavingsGoalOut(BaseModel):
+    id: int
+    ratio_percent: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------- Deleting an account ----------
+class DeleteAccount(BaseModel):
+    password: str
 
 
 # ---------- Reports ----------
@@ -148,6 +176,16 @@ class AlertOut(BaseModel):
     message: str
 
 
+class SavingsStatus(BaseModel):
+    ratio_percent: float            # the goal, e.g. 20 (percent of income)
+    goal_amount: float              # income x ratio, the money to keep
+    max_spend: float                # income - goal_amount, the most you can spend
+    spent: float                    # expenses so far this month
+    left_to_spend: float            # max_spend - spent (negative when over)
+    status: str                     # "ok", "warning", "over" or "no_income"
+    projected_spend: Optional[float] = None   # month-end guess at the current pace
+
+
 class SummaryOut(BaseModel):
     period: str
     total_income: float
@@ -155,6 +193,7 @@ class SummaryOut(BaseModel):
     savings: float
     savings_rate_percent: float
     categories: list[CategorySpend]
+    savings_goal: Optional[SavingsStatus] = None
     alerts: list[AlertOut]
 
 

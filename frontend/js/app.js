@@ -2,13 +2,18 @@
 
 /* =====================================================================
    app.js - the dashboard
-   Sections:  1. State          5. Alerts, stats, categories, chart
+   Sections:  1. State          5. Alerts, stats, savings goal, categories, chart
               2. Start-up       6. Transactions and budgets lists
               3. Loading data   7. Add / edit transaction dialog
-              4. Small helpers  8. Budget dialog, quick add, wiring
+              4. Small helpers  8. Budget and goal dialogs, delete account, quick add, wiring
    ===================================================================== */
 
 if (!getToken()) location.replace('/');
+
+// Back button after logging out can show a saved copy of this page. Check again.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted && !getToken()) location.replace('/');
+});
 
 const PAGE_SIZE = 20;
 const $ = (selector) => document.querySelector(selector);
@@ -26,7 +31,6 @@ const state = {
   filter: 'all',         // all | expense | income
   hasMore: false,
 };
-let trendChart = null;
 
 /* ---------- 2. Start-up ---------- */
 async function init() {
@@ -64,6 +68,7 @@ async function refreshAll() {
 
     renderMonth();
     renderStats();
+    renderGoal();
     renderAlerts();
     renderCategories();
     renderBudgets();
@@ -159,6 +164,38 @@ function renderStats() {
   $('#stat-note').textContent = note;
 }
 
+function renderGoal() {
+  const goal = state.summary.savings_goal;
+  const body = $('#goal-body');
+  $('#goal-edit').textContent = goal ? 'Change goal' : 'Set a goal';
+
+  if (!goal) {
+    body.replaceChildren(el('p', { class: 'empty', text: 'No savings goal yet. Choose how much of your income you want to keep, and we will warn you when your spending puts it at risk.' }));
+    return;
+  }
+  if (goal.status === 'no_income') {
+    body.replaceChildren(el('p', { class: 'empty', text: `Your goal is to keep ${goal.ratio_percent}% of your income. Add this month's income to see how you are doing.` }));
+    return;
+  }
+
+  const usedPercent = goal.max_spend > 0 ? Math.min(100, (goal.spent / goal.max_spend) * 100) : 100;
+  const left = goal.left_to_spend;
+  const spendLine = left >= 0
+    ? `You can spend ${money(goal.max_spend)} this month. You have spent ${money(goal.spent)}, so ${money(left)} is left.`
+    : `You can spend ${money(goal.max_spend)} this month. You have spent ${money(goal.spent)}, which is ${money(-left)} too much.`;
+
+  const lines = [
+    el('div', { class: 'goal-line', text: `Keep ${goal.ratio_percent}% of your income (${money(goal.goal_amount)})` }),
+    el('div', { class: `goal-bar goal-${goal.status}`, role: 'img', 'aria-label': `${Math.round(usedPercent)}% of the money you can spend is used` },
+      el('div', { class: 'goal-fill', style: `width:${usedPercent}%` })),
+    el('div', { class: 'goal-meta', text: spendLine }),
+  ];
+  if (goal.projected_spend !== null && goal.projected_spend !== undefined) {
+    lines.push(el('div', { class: 'goal-meta', text: `At this pace you will spend about ${money(Math.round(goal.projected_spend))} by the end of the month.` }));
+  }
+  body.replaceChildren(...lines);
+}
+
 function renderAlerts() {
   const list = $('#alerts');
   const alerts = state.summary.alerts;
@@ -168,10 +205,10 @@ function renderAlerts() {
   });
 
   if (!rows.length) {
-    if (state.budgets.length) {
-      rows.push(el('li', { class: 'alert alert-ok' }, icon('check'), el('span', { text: 'All your budgets are on track this month.' })));
+    if (state.budgets.length || state.summary.savings_goal) {
+      rows.push(el('li', { class: 'alert alert-ok' }, icon('check'), el('span', { text: 'You are on track this month.' })));
     } else {
-      rows.push(el('li', { class: 'alert alert-info' }, icon('info'), el('span', { text: 'Set a budget and we will warn you before you overspend.' })));
+      rows.push(el('li', { class: 'alert alert-info' }, icon('info'), el('span', { text: 'Set a budget or a savings goal and we will warn you before you overspend.' })));
     }
   }
   list.replaceChildren(...rows);
@@ -219,63 +256,36 @@ function renderCategories() {
   }));
 }
 
+/* The 6-month chart is drawn with plain HTML boxes: each bar is a <div> whose height is
+   its share of the tallest value. No chart library is needed. */
 function renderTrend(points) {
+  const box = $('#trend-chart');
   const hasData = points.some((p) => p.income || p.expense);
   $('#trend-empty').hidden = hasData;
-  if (typeof Chart === 'undefined') return; // Chart.js failed to load; the rest of the page still works
-
-  const css = getComputedStyle(document.documentElement);
-  const incomeColor = css.getPropertyValue('--accent').trim();
-  const expenseColor = css.getPropertyValue('--expense').trim();
-  const labels = points.map((p) => {
-    const [y, m] = p.month.split('-').map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short' });
-  });
-  const fullLabels = points.map((p) => {
-    const [y, m] = p.month.split('-').map(Number);
-    return monthLabel(y, m);
-  });
-
-  const datasets = [
-    { label: 'Income', data: points.map((p) => p.income), backgroundColor: incomeColor, borderRadius: 4 },
-    { label: 'Spent', data: points.map((p) => p.expense), backgroundColor: expenseColor, borderRadius: 4 },
-  ];
-
-  if (trendChart) {
-    trendChart.data.labels = labels;
-    trendChart.data.datasets = datasets;
-    trendChart.options.plugins.tooltip.callbacks.title = (items) => fullLabels[items[0].dataIndex];
-    trendChart.update();
+  box.hidden = !hasData;
+  $('#trend-scale').textContent = '';
+  if (!hasData) {
+    box.replaceChildren();
     return;
   }
 
-  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
-  Chart.defaults.color = css.getPropertyValue('--muted').trim();
-  const compact = new Intl.NumberFormat(CURRENCY.locale, { notation: 'compact', maximumFractionDigits: 1 });
+  const tallest = Math.max(...points.flatMap((p) => [p.income, p.expense]));
+  $('#trend-scale').textContent = `Tallest bar: ${money(tallest)}`;
+  box.style.gridTemplateColumns = `repeat(${points.length}, 1fr)`;
 
-  trendChart = new Chart($('#trend-canvas'), {
-    type: 'bar',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      categoryPercentage: 0.7,
-      barPercentage: 0.85,
-      plugins: {
-        legend: { position: 'top', align: 'start', labels: { boxWidth: 12, boxHeight: 12, useBorderRadius: true, borderRadius: 3 } },
-        tooltip: {
-          callbacks: {
-            title: (items) => fullLabels[items[0].dataIndex],
-            label: (item) => `${item.dataset.label}: ${money(item.parsed.y)}`,
-          },
-        },
-      },
-      scales: {
-        x: { grid: { display: false } },
-        y: { beginAtZero: true, grid: { color: css.getPropertyValue('--line').trim() }, ticks: { callback: (v) => compact.format(v) } },
-      },
-    },
+  const columns = points.map((p) => {
+    const [year, month] = p.month.split('-').map(Number);
+    const shortName = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'short' });
+    const summary = `${monthLabel(year, month)}: income ${money(p.income)}, spent ${money(p.expense)}`;
+
+    const incomeBar = el('div', { class: 'trend-bar trend-income', style: `height:${(p.income / tallest) * 100}%` });
+    const spentBar = el('div', { class: 'trend-bar trend-spent', style: `height:${(p.expense / tallest) * 100}%` });
+
+    return el('div', { class: 'trend-col', title: summary, 'aria-label': summary },
+      el('div', { class: 'trend-bars' }, incomeBar, spentBar),
+      el('div', { class: 'trend-label', text: shortName }));
   });
+  box.replaceChildren(...columns);
 }
 
 /* ---------- 6. Transactions and budgets lists ---------- */
@@ -581,6 +591,98 @@ async function saveBudget(event) {
   }
 }
 
+/* ---------- Savings goal dialog ---------- */
+function openGoalDialog() {
+  const goal = state.summary ? state.summary.savings_goal : null;
+  $('#goal-error').textContent = '';
+  $('#goal-ratio').removeAttribute('aria-invalid');
+  $('#goal-ratio').value = goal ? goal.ratio_percent : '';
+  $('#goal-remove').hidden = !goal;
+  updateGoalNote();
+  $('#goal-dialog').showModal();
+  $('#goal-ratio').focus();
+}
+
+function updateGoalNote() {
+  const ratio = Number($('#goal-ratio').value);
+  const income = state.summary ? state.summary.total_income : 0;
+  const note = $('#goal-note');
+  if (ratio > 0 && ratio <= 100 && income > 0) {
+    const keep = (income * ratio) / 100;
+    note.textContent = `You would keep ${money(keep)} and could spend up to ${money(income - keep)} of this month's ${money(income)} income.`;
+  } else if (income === 0) {
+    note.textContent = "The goal is a share of income. Add this month's income to see the amounts.";
+  } else {
+    note.textContent = '';
+  }
+}
+
+async function saveGoal(event) {
+  event.preventDefault();
+  const error = $('#goal-error');
+  error.textContent = '';
+  const ratio = Number($('#goal-ratio').value);
+
+  $('#goal-ratio').toggleAttribute('aria-invalid', !(ratio > 0 && ratio <= 100));
+  if (!(ratio > 0 && ratio <= 100)) {
+    error.textContent = 'Enter a share between 1 and 100.';
+    $('#goal-ratio').focus();
+    return;
+  }
+
+  const button = $('#goal-save');
+  button.disabled = true;
+  try {
+    await api('/savings-goal', { method: 'PUT', body: { ratio_percent: ratio } });
+    $('#goal-dialog').close();
+    toast('Savings goal saved');
+    await refreshAll();
+  } catch (err) {
+    if (err.status !== 401) error.textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function removeGoal() {
+  $('#goal-dialog').close();
+  const ok = await confirmDialog('Remove your savings goal?', 'You will stop getting savings alerts until you set a new goal.', 'Remove');
+  if (!ok) return;
+  try {
+    await api('/savings-goal', { method: 'DELETE' });
+    toast('Savings goal removed');
+    await refreshAll();
+  } catch (error) {
+    if (error.status !== 401) toast(error.message);
+  }
+}
+
+/* ---------- Delete my account ---------- */
+function openDeleteDialog() {
+  $('#delete-password').value = '';
+  $('#delete-error').textContent = '';
+  $('#delete-dialog').showModal();
+  $('#delete-password').focus();
+}
+
+async function deleteAccount(event) {
+  event.preventDefault();
+  const error = $('#delete-error');
+  const password = $('#delete-password').value;
+  if (!password) {
+    error.textContent = 'Enter your password to confirm.';
+    return;
+  }
+  try {
+    await api('/me', { method: 'DELETE', body: { password } });
+    clearToken();
+    setFlash('Your account and all your data were deleted.');
+    location.replace('/');
+  } catch (err) {
+    if (err.status !== 401) error.textContent = err.message;
+  }
+}
+
 /* "Swiggy 250" -> { description: "Swiggy", amount: 250, type: "expense" }
    A leading "+" means income:  "+50000 salary". */
 function parseQuickAdd(text) {
@@ -601,7 +703,7 @@ function parseQuickAdd(text) {
 }
 
 function bindEvents() {
-  $('#logout').addEventListener('click', () => { clearToken(); location.href = '/'; });
+  $('#logout').addEventListener('click', () => { clearToken(); location.replace('/'); });
   $('#banner-retry').addEventListener('click', () => location.reload());
 
   // Month switcher
@@ -621,6 +723,8 @@ function bindEvents() {
   $('#tile-expense').addEventListener('click', () => openTxDialog({ mode: 'add', type: 'expense' }));
   $('#tile-income').addEventListener('click', () => openTxDialog({ mode: 'add', type: 'income' }));
   $('#tile-budget').addEventListener('click', () => openBudgetDialog());
+  $('#tile-savings').addEventListener('click', openGoalDialog);
+  $('#goal-edit').addEventListener('click', openGoalDialog);
 
   // Quick add opens the same dialog, already filled in, so the user can review it.
   $('#quick-form').addEventListener('submit', (event) => {
@@ -662,6 +766,17 @@ function bindEvents() {
   $('#budget-form').addEventListener('submit', saveBudget);
   $('#budget-cancel').addEventListener('click', () => $('#budget-dialog').close());
   $('#budget-ratio').addEventListener('input', updateBudgetNote);
+
+  // Savings goal dialog
+  $('#goal-form').addEventListener('submit', saveGoal);
+  $('#goal-cancel').addEventListener('click', () => $('#goal-dialog').close());
+  $('#goal-remove').addEventListener('click', removeGoal);
+  $('#goal-ratio').addEventListener('input', updateGoalNote);
+
+  // Delete my account
+  $('#delete-account').addEventListener('click', openDeleteDialog);
+  $('#delete-form').addEventListener('submit', deleteAccount);
+  $('#delete-cancel').addEventListener('click', () => $('#delete-dialog').close());
 
   // Clicking the dark area outside a dialog closes it.
   document.querySelectorAll('dialog').forEach((dialog) => {

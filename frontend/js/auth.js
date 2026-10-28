@@ -4,9 +4,6 @@
    auth.js - the log in / create account page
    ===================================================================== */
 
-// Already logged in? Go straight to the dashboard.
-if (getToken()) location.replace('/app.html');
-
 let mode = 'login'; // or 'register'
 
 const form = document.querySelector('#auth-form');
@@ -31,6 +28,7 @@ function setMode(next) {
   document.querySelector('#mode-login').setAttribute('aria-pressed', String(!isRegister));
   document.querySelector('#mode-register').setAttribute('aria-pressed', String(isRegister));
   document.querySelector('#pw-hint').hidden = !isRegister;
+  document.querySelector('#age-row').hidden = !isRegister;
   passwordInput.autocomplete = isRegister ? 'new-password' : 'current-password';
   errorBox.textContent = '';
 }
@@ -60,6 +58,11 @@ form.addEventListener('submit', async (event) => {
     return;
   }
 
+  if (mode === 'register' && !document.querySelector('#age').checked) {
+    errorBox.textContent = 'Please confirm that you are 18 or older.';
+    return;
+  }
+
   submitButton.disabled = true;
   try {
     if (mode === 'register') {
@@ -70,7 +73,16 @@ form.addEventListener('submit', async (event) => {
     setToken(data.access_token);
     location.href = '/app.html';
   } catch (error) {
-    errorBox.textContent = error.message;
     submitButton.disabled = false;
+    // Email already has an account: move them to Log in with a clear message.
+    if (mode === 'register' && error.status === 400 && /already/i.test(error.message)) {
+      setMode('login');
+      const notice = document.querySelector('#notice');
+      notice.textContent = 'You already have an account with this email. Enter your password to log in.';
+      notice.hidden = false;
+      passwordInput.focus();
+      return;
+    }
+    errorBox.textContent = error.message;
   }
 });

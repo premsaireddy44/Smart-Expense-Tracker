@@ -4,11 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Smart Expense Tracker</title>
+  <!-- Not logged in? Leave before anything is drawn. -->
+  <script>try { if (!sessionStorage.getItem('set_token')) location.replace('/'); } catch (e) {}</script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
   <!-- Icons. Each <symbol> is drawn once here and reused with <use href="#i-name">. -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2.5 4L17 12H5"/></symbol>
     <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20v-7M12 20V5M18 20v-10"/></symbol>
     <symbol id="i-expense" viewBox="0 0 24 24"><path d="M7 17L17 7M8 7h9v9"/></symbol>
     <symbol id="i-income" viewBox="0 0 24 24"><path d="M17 7L7 17M16 17H7V8"/></symbol>
@@ -35,7 +40,7 @@
     </div>
   </header>
 
-  <main class="page">
+  <main id="main" class="page">
     <div id="banner" class="banner" role="alert" hidden>
       <span id="banner-text"></span>
       <button id="banner-retry" class="btn" type="button">Try again</button>
@@ -59,6 +64,10 @@
       <button id="tile-budget" class="tile tile-budget" type="button">
         <span class="tile-icon"><svg class="icon"><use href="#i-target"/></svg></span>
         <span class="tile-text"><span class="tile-title">Set a budget</span><span class="tile-sub">A share of income for a category</span></span>
+      </button>
+      <button id="tile-savings" class="tile tile-savings" type="button">
+        <span class="tile-icon"><svg class="icon" aria-hidden="true"><use href="#i-flag"/></svg></span>
+        <span class="tile-text"><span class="tile-title">Savings goal</span><span class="tile-sub">How much of your income to keep</span></span>
       </button>
     </section>
 
@@ -86,6 +95,14 @@
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="goal-title">
+      <div class="panel-head">
+        <h2 id="goal-title">Your savings goal</h2>
+        <button id="goal-edit" class="btn" type="button">Change goal</button>
+      </div>
+      <div id="goal-body"></div>
+    </section>
+
     <div class="grid-2">
       <section class="panel" aria-labelledby="cats-title">
         <div class="panel-head">
@@ -100,7 +117,12 @@
         <div class="panel-head">
           <h2 id="trend-title">Last 6 months</h2>
         </div>
-        <div class="chart-wrap"><canvas id="trend-canvas" role="img" aria-label="Bar chart of income and spending for the last six months"></canvas></div>
+        <p class="legend">
+          <span><i class="dot dot-income"></i>Income</span>
+          <span><i class="dot dot-expense"></i>Spent</span>
+          <span id="trend-scale"></span>
+        </p>
+        <div id="trend-chart" class="trend" role="img" aria-label="Bar chart of income and spending for the last six months"></div>
         <p id="trend-empty" class="empty" hidden>Your chart appears here once you add a few transactions.</p>
       </section>
     </div>
@@ -178,6 +200,39 @@
     </form>
   </dialog>
 
+  <!-- Set / change the savings goal -->
+  <dialog id="goal-dialog" aria-labelledby="goal-dialog-title">
+    <form id="goal-form" class="dialog-body" novalidate>
+      <h2 id="goal-dialog-title">Savings goal</h2>
+      <label class="field">Share of your income you want to keep (%)
+        <input id="goal-ratio" type="number" inputmode="decimal" min="1" max="100" step="0.5" placeholder="For example 20">
+      </label>
+      <p id="goal-note" class="note" aria-live="polite"></p>
+      <p id="goal-error" class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="goal-remove" class="btn btn-quiet" type="button" hidden>Remove goal</button>
+        <button id="goal-cancel" class="btn btn-quiet" type="button">Cancel</button>
+        <button id="goal-save" class="btn btn-primary" type="submit">Save goal</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Delete my account -->
+  <dialog id="delete-dialog" aria-labelledby="delete-title">
+    <form id="delete-form" class="dialog-body" novalidate>
+      <h2 id="delete-title">Delete your account?</h2>
+      <p>This erases your account, transactions, budgets and savings goal straight away. It cannot be undone.</p>
+      <label class="field">Enter your password to confirm
+        <input id="delete-password" type="password" autocomplete="current-password">
+      </label>
+      <p id="delete-error" class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="delete-cancel" class="btn btn-quiet" type="button">Cancel</button>
+        <button class="btn btn-danger" type="submit">Delete everything</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Are you sure? -->
   <dialog id="confirm-dialog" aria-labelledby="confirm-title">
     <form method="dialog" class="dialog-body">
@@ -190,12 +245,14 @@
     </form>
   </dialog>
 
+  <footer class="site-footer">
+    <div id="site-footer"></div>
+    <p><button id="delete-account" class="link-btn danger" type="button">Delete my account and data</button></p>
+  </footer>
+
   <datalist id="cat-list"></datalist>
   <datalist id="budget-cat-list"></datalist>
   <div id="toast" class="toast" role="status" hidden></div>
-
-  <!-- Chart.js, loaded from the internet. If it can't load, everything else still works. -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js"></script>
   <script src="js/common.js"></script>
   <script src="js/app.js"></script>
 </body>

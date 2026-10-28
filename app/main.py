@@ -1,3 +1,4 @@
+import calendar
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -60,6 +61,62 @@ def total_by_type(db: Session, user_id: int, tx_type, start, end) -> float:
     return float(total)
 
 
+def check_savings_goal(goal, income, expense, year, month, today=None):
+    """Compare this month's spending with the savings goal.
+    Returns (SavingsStatus, list of alerts). Money shown in messages has no currency symbol."""
+    alerts = []
+    ratio = goal.ratio_percent
+
+    if income <= 0:
+        return schemas.SavingsStatus(
+            ratio_percent=ratio, goal_amount=0, max_spend=0, spent=round(expense, 2),
+            left_to_spend=0, status="no_income",
+        ), alerts
+
+    goal_amount = income * ratio / 100
+    max_spend = income - goal_amount
+    left = max_spend - expense
+
+    if expense > max_spend:
+        status = "over"
+        alerts.append(schemas.AlertOut(
+            level="over",
+            message=f"You have spent {expense:,.0f}, which is {-left:,.0f} more than the "
+                    f"{max_spend:,.0f} you can spend and still save {ratio:.0f}% of your income",
+        ))
+    elif expense >= 0.8 * max_spend:
+        status = "warning"
+        alerts.append(schemas.AlertOut(
+            level="warning",
+            message=f"Only {left:,.0f} left to spend if you want to save {ratio:.0f}% of your income",
+        ))
+    else:
+        status = "ok"
+
+    # For the current month, guess where spending will end up at today's pace.
+    projected = None
+    now = today or datetime.now()
+    if year == now.year and month == now.month and now.day >= 5:
+        days_in_month = calendar.monthrange(year, month)[1]
+        projected = expense / now.day * days_in_month
+        if status != "over" and projected > max_spend:
+            alerts.append(schemas.AlertOut(
+                level="warning",
+                message=f"At this pace you will spend about {projected:,.0f} by the end of the month, "
+                        f"more than the {max_spend:,.0f} that keeps your {ratio:.0f}% savings goal",
+            ))
+
+    return schemas.SavingsStatus(
+        ratio_percent=ratio,
+        goal_amount=round(goal_amount, 2),
+        max_spend=round(max_spend, 2),
+        spent=round(expense, 2),
+        left_to_spend=round(left, 2),
+        status=status,
+        projected_spend=round(projected, 2) if projected is not None else None,
+    ), alerts
+
+
 # ---------------------------------------------------------------- basics
 @app.get("/health")
 def health_check():
@@ -69,7 +126,7 @@ def health_check():
 # ---------------------------------------------------------------- users
 @app.post("/register", response_model=schemas.UserOut)
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    existing_user = db.query(models.User).filter(models.User.email == user.email).first()
+    existing_user = db.query(models.User).filter(func.lower(models.User.email) == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -82,7 +139,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == credentials.email).first()
+    user = db.query(models.User).filter(func.lower(models.User.email) == credentials.email).first()
     if not user or not auth.verify_password(credentials.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
@@ -93,6 +150,24 @@ def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
 @app.get("/me", response_model=schemas.UserOut)
 def read_current_user(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+@app.delete("/me")
+def delete_my_account(
+    data: schemas.DeleteAccount,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Erase the user and everything they stored. The password is asked again as a safety check."""
+    if not auth.verify_password(data.password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="That password is not correct")
+
+    db.query(models.Transaction).filter(models.Transaction.owner_id == current_user.id).delete()
+    db.query(models.Budget).filter(models.Budget.owner_id == current_user.id).delete()
+    db.query(models.SavingsGoal).filter(models.SavingsGoal.owner_id == current_user.id).delete()
+    db.delete(current_user)
+    db.commit()
+    return {"detail": "Your account and all your data were deleted"}
 
 
 # ---------------------------------------------------------------- categories
@@ -280,6 +355,46 @@ def delete_budget(
     return {"detail": "Budget deleted successfully"}
 
 
+# ---------------------------------------------------------------- savings goal
+@app.get("/savings-goal", response_model=Optional[schemas.SavingsGoalOut])
+def get_savings_goal(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.SavingsGoal).filter(models.SavingsGoal.owner_id == current_user.id).first()
+
+
+@app.put("/savings-goal", response_model=schemas.SavingsGoalOut)
+def set_savings_goal(
+    data: schemas.SavingsGoalIn,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create the goal, or change it if one already exists."""
+    goal = db.query(models.SavingsGoal).filter(models.SavingsGoal.owner_id == current_user.id).first()
+    if goal:
+        goal.ratio_percent = data.ratio_percent
+    else:
+        goal = models.SavingsGoal(ratio_percent=data.ratio_percent, owner_id=current_user.id)
+        db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
+@app.delete("/savings-goal")
+def delete_savings_goal(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    goal = db.query(models.SavingsGoal).filter(models.SavingsGoal.owner_id == current_user.id).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Savings goal not found")
+    db.delete(goal)
+    db.commit()
+    return {"detail": "Savings goal deleted successfully"}
+
+
 # ---------------------------------------------------------------- reports
 @app.get("/summary", response_model=schemas.SummaryOut)
 def get_summary(
@@ -307,6 +422,8 @@ def get_summary(
         b.category_id: b.ratio_percent
         for b in db.query(models.Budget).filter(models.Budget.owner_id == current_user.id).all()
     }
+
+    goal = db.query(models.SavingsGoal).filter(models.SavingsGoal.owner_id == current_user.id).first()
 
     # 3. Spending per category in this month, biggest first
     total_spent = func.sum(models.Transaction.amount)
@@ -361,10 +478,16 @@ def get_summary(
             )
         )
 
-    if income == 0 and expense > 0 and budgets:
+    # 5. Savings goal
+    savings_status = None
+    if goal:
+        savings_status, goal_alerts = check_savings_goal(goal, income, expense, year, month)
+        alerts.extend(goal_alerts)
+
+    if income == 0 and expense > 0 and (budgets or goal):
         alerts.append(schemas.AlertOut(
             level="info",
-            message="Add your income to see how spending compares with your budgets",
+            message="Add your income to see how spending compares with your budgets and savings goal",
         ))
 
     return schemas.SummaryOut(
@@ -374,6 +497,7 @@ def get_summary(
         savings=round(savings, 2),
         savings_rate_percent=round(savings_rate, 1),
         categories=categories,
+        savings_goal=savings_status,
         alerts=alerts,
     )
 

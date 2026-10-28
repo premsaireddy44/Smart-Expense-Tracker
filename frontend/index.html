@@ -7,23 +7,44 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <a class="skip-link" href="#auth-form">Skip to the log in form</a>
+
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20v-7M12 20V5M18 20v-10"/></symbol>
-    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></symbol>
   </svg>
 
   <div class="auth">
     <aside class="auth-side">
       <div class="brand">
-        <span class="brand-mark"><svg class="icon"><use href="#i-bars"/></svg></span>
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-bars"/></svg></span>
         <span class="brand-name">Smart Expense Tracker</span>
       </div>
+
       <h1>Know where your money goes.</h1>
-      <ul class="auth-points">
-        <li><svg class="icon"><use href="#i-check"/></svg><span>Type "Swiggy 250" and the category is picked for you.</span></li>
-        <li><svg class="icon"><use href="#i-check"/></svg><span>Give each category a share of your income.</span></li>
-        <li><svg class="icon"><use href="#i-check"/></svg><span>Get a warning before you overspend, not after.</span></li>
-      </ul>
+      <p class="auth-lead">A simple way to track what you earn and spend, and to stay on track with your savings.</p>
+
+      <ol class="auth-steps" aria-label="How it works">
+        <li>
+          <div><strong>Add what you spent or earned</strong>
+          <span>Type "Swiggy 250" or "+50000 salary", or use the big buttons.</span></div>
+        </li>
+        <li>
+          <div><strong>Check the category</strong>
+          <span>We suggest one from your words. Change it if it is wrong, then save.</span></div>
+        </li>
+        <li>
+          <div><strong>Set your limits</strong>
+          <span>Give each category a share of your income, and choose how much you want to save.</span></div>
+        </li>
+        <li>
+          <div><strong>Get warned early</strong>
+          <span>Alerts appear before you overspend or put your savings goal at risk.</span></div>
+        </li>
+        <li>
+          <div><strong>See the full picture</strong>
+          <span>Monthly totals, where your money went, and a chart of the last 6 months.</span></div>
+        </li>
+      </ol>
     </aside>
 
     <main class="auth-main">
@@ -48,9 +69,16 @@
         </label>
         <p id="pw-hint" class="note" hidden>Use at least 8 characters.</p>
 
+        <label id="age-row" class="check" hidden>
+          <input id="age" type="checkbox">
+          <span>I am 18 or older, and I have read the <a href="privacy.html">privacy and data page</a>.</span>
+        </label>
+
         <p id="auth-error" class="error" role="alert"></p>
         <button type="submit" id="auth-submit" class="btn btn-primary">Log in</button>
       </form>
+
+      <footer id="site-footer" class="site-footer"></footer>
     </main>
   </div>
 

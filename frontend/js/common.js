@@ -7,21 +7,31 @@
 /* Change these two values to switch currency (for example GBP / en-GB). */
 const CURRENCY = { locale: 'en-IN', code: 'INR' };
 
+/* Your details for the footer and the privacy page. Change them in this one place. */
+const SITE = {
+  owner: 'Prem Sai Reddy',
+  location: 'Hyderabad , India',
+  contact: 'publicfixcomplaints@gmail.com',
+};
+
 const TOKEN_KEY = 'set_token';
 const FLASH_KEY = 'set_flash';
 
 /* ---------- Token storage ----------
-   The JWT lives in localStorage so a page refresh keeps you logged in.
+   The JWT lives in sessionStorage: it survives a page refresh, but it is gone when the tab
+   or the browser is closed. So opening the link in a new tab always starts at the login page.
    Every access is wrapped in try/catch because browsers can block storage. */
 function getToken() {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 function setToken(token) {
-  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+  try { sessionStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
 }
 function clearToken() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
 }
+// Older versions kept the token in localStorage. Remove that old copy so nobody stays logged in.
+try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
 function setFlash(message) {
   try { sessionStorage.setItem(FLASH_KEY, message); } catch { /* ignore */ }
 }
@@ -125,3 +135,20 @@ function icon(name) {
   svg.append(use);
   return svg;
 }
+
+/* ---------- Footer ----------
+   Shows who runs the site, what it is, and where to ask for data deletion. */
+function renderFooter() {
+  const footer = document.querySelector('#site-footer');
+  if (!footer) return;
+  footer.replaceChildren(
+    el('p', {
+      text: `Smart Expense Tracker is a personal portfolio project by ${SITE.owner}, ${SITE.location}. `
+        + 'It is not a registered business and does not give financial advice.',
+    }),
+    el('p', {},
+      'Contact: ', el('a', { href: `mailto:${SITE.contact}`, text: SITE.contact }),
+      ' · ', el('a', { href: 'privacy.html', text: 'Privacy and data deletion' })),
+  );
+}
+renderFooter();

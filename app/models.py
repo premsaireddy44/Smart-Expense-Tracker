@@ -1,8 +1,9 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from app.database import Base
 import enum
+
+from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy.sql import func
+
+from app.database import Base
 
 
 class TransactionType(str, enum.Enum):
@@ -17,17 +18,12 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
 
-    transactions = relationship("Transaction", back_populates="owner")
-    budgets = relationship("Budget", back_populates="owner")
-
 
 class Category(Base):
     __tablename__ = "categories"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
-
-    transactions = relationship("Transaction", back_populates="category")
 
 
 class Transaction(Base):
@@ -38,12 +34,8 @@ class Transaction(Base):
     amount = Column(Float, nullable=False)
     type = Column(Enum(TransactionType), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     owner_id = Column(Integer, ForeignKey("users.id"))
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
-
-    owner = relationship("User", back_populates="transactions")
-    category = relationship("Category", back_populates="transactions")
 
 
 class Budget(Base):
@@ -51,9 +43,15 @@ class Budget(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     ratio_percent = Column(Float, nullable=False)
-
     owner_id = Column(Integer, ForeignKey("users.id"))
     category_id = Column(Integer, ForeignKey("categories.id"))
 
-    owner = relationship("User", back_populates="budgets")
-    category = relationship("Category")
+
+class SavingsGoal(Base):
+    """How much of their income a user wants to keep. One row per user."""
+
+    __tablename__ = "savings_goals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ratio_percent = Column(Float, nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), unique=True)

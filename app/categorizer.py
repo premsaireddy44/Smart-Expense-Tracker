@@ -10,29 +10,29 @@ KEYWORDS = {
                   "supermarket", "vegetables", "vegetable", "fruit", "fruits", "milk",
                   "dmart", "tesco", "lidl", "aldi", "sainsburys"],
     "Rent": ["rent", "landlord", "hostel", "pg"],
-    "Utilities": ["electricity", "water bill", "gas bill", "internet", "wifi", "broadband",
+    "Utilities": ["bills", "bill", "electricity", "water bill", "gas bill", "internet", "wifi", "broadband",
                   "recharge", "mobile recharge", "phone bill", "jio", "airtel", "vodafone"],
     "Transport": ["uber", "ola", "rapido", "auto", "taxi", "cab", "bus", "metro", "train",
                   "petrol", "fuel", "diesel", "parking", "toll", "tube", "oyster"],
     "Travel": ["flight", "hotel", "airbnb", "makemytrip", "irctc", "booking", "vacation",
                "trip", "visa", "holiday", "train ticket"],
-    "Entertainment": ["movie", "cinema", "bookmyshow", "concert", "gaming", "game", "pub",
+    "Entertainment": ["fun", "movies", "movie", "cinema", "bookmyshow", "concert", "gaming", "game", "pub",
                       "club", "party"],
-    "Shopping": ["amazon", "flipkart", "myntra", "ajio", "meesho", "clothes", "shoes",
+    "Shopping": ["shop", "shops", "amazon", "flipkart", "myntra", "ajio", "meesho", "clothes", "shoes",
                  "shopping", "mall", "electronics"],
-    "Health": ["doctor", "hospital", "pharmacy", "medicine", "medical", "clinic", "dentist",
+    "Health": ["healthcare", "doctor", "hospital", "pharmacy", "medicine", "medical", "clinic", "dentist",
                "apollo", "gym", "lab test"],
     "Education": ["tuition", "school", "college", "fees", "course", "udemy", "coursera",
                   "books", "exam", "university", "textbook"],
     "Insurance": ["insurance", "lic"],
     "Subscriptions": ["netflix", "spotify", "prime", "youtube premium", "hotstar",
                       "subscription", "icloud", "chatgpt", "amazon prime"],
-    "Gifts & Donations": ["gift", "donation", "charity", "birthday", "wedding"],
+    "Gifts & Donations": ["gifts", "gift", "donation", "charity", "birthday", "wedding"],
     "Personal Care": ["salon", "haircut", "spa", "grooming", "skincare", "barber"],
     "Salary": ["salary", "payroll", "wages", "stipend", "paycheck", "bonus"],
     "Freelance Income": ["freelance", "client payment", "invoice", "consulting",
                          "project payment"],
-    "Investments": ["dividend", "interest", "mutual fund", "capital gains", "returns"],
+    "Investments": ["investment", "investments", "stocks", "dividend", "interest", "mutual fund", "capital gains", "returns"],
 }
 
 INCOME_CATEGORIES = {"Salary", "Freelance Income", "Investments"}
@@ -55,7 +55,8 @@ def suggest_category(description: str, tx_type: str):
     for name, words in KEYWORDS.items():
         if (name in INCOME_CATEGORIES) != want_income:
             continue                                # income only matches income categories
-        for word in words:
+        # The category's own name counts as a keyword too, so typing "food" or "travel" works.
+        for word in words + [name]:
             if f" {clean(word).strip()} " in text and len(word) > best_length:
                 best_name = name
                 best_length = len(word)             # longest keyword wins
