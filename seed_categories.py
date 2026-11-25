@@ -1,14 +1,13 @@
-"""Run once:  python seed_categories.py
+"""Run once, AFTER  alembic upgrade head :   python seed_categories.py
 Adds any missing categories to the database. Safe to run again."""
 
 from app import models
 from app.categorizer import KEYWORDS
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal
 
 # Every category the categorizer knows, plus "Other" for things nothing matches.
 NAMES = list(KEYWORDS.keys()) + ["Other"]
 
-Base.metadata.create_all(bind=engine)
 db = SessionLocal()
 
 added = []

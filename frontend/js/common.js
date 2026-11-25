@@ -1,154 +1,144 @@
 'use strict';
 
 /* =====================================================================
-   common.js - small helpers shared by the login page and the dashboard
+   common.js - small tools used by every page
+   1. Money   2. Login token   3. Talking to the API   4. Building HTML safely   5. Icons
    ===================================================================== */
 
-/* Change these two values to switch currency (for example GBP / en-GB). */
-const CURRENCY = { locale: 'en-IN', code: 'INR' };
+const APP_VERSION = '2.1.0';
 
-/* Your details for the footer and the privacy page. Change them in this one place. */
-const SITE = {
-  owner: 'Prem Sai Reddy',
-  location: 'Hyderabad , India',
-  contact: 'publicfixcomplaints@gmail.com',
+/* ---------- 1. Money ---------- */
+// The currencies the app knows. The server has the same list (app/rates.py).
+const CURRENCIES = {
+  INR: { symbol: '\u20B9', name: 'Indian rupee' },
+  GBP: { symbol: '\u00A3', name: 'British pound' },
+  USD: { symbol: '$', name: 'US dollar' },
+  EUR: { symbol: '\u20AC', name: 'Euro' },
 };
+let currentCurrency = 'INR';          // set from your profile when the app starts
 
-const TOKEN_KEY = 'set_token';
-const FLASH_KEY = 'set_flash';
+function setCurrency(code) { if (CURRENCIES[code]) currentCurrency = code; }
+function symbolOf(code) { return (CURRENCIES[code || currentCurrency] || CURRENCIES.INR).symbol; }
 
-/* ---------- Token storage ----------
-   The JWT lives in sessionStorage: it survives a page refresh, but it is gone when the tab
-   or the browser is closed. So opening the link in a new tab always starts at the login page.
-   Every access is wrapped in try/catch because browsers can block storage. */
-function getToken() {
-  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+/* money(2500) -> "₹2,500".  money(40, 'GBP') -> "£40" */
+function money(value, code) {
+  const number = Number(value) || 0;
+  const text = Math.abs(number).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return `${number < 0 ? '\u2212' : ''}${symbolOf(code)}${text}`;
 }
-function setToken(token) {
-  try { sessionStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
-}
-function clearToken() {
-  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
-}
-// Older versions kept the token in localStorage. Remove that old copy so nobody stays logged in.
-try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
-function setFlash(message) {
-  try { sessionStorage.setItem(FLASH_KEY, message); } catch { /* ignore */ }
-}
+
+/* ---------- 2. Login token ----------
+   sessionStorage forgets the token when the tab is closed, which is safer than localStorage. */
+const TOKEN_KEY = 'expense_token';
+function getToken() { try { return sessionStorage.getItem(TOKEN_KEY); } catch (e) { return null; } }
+function setToken(token) { try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) { /* storage blocked */ } }
+function clearToken() { try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ } }
+
+/* A one-time message shown on the login page after logout or account deletion. */
+function setFlash(message) { try { sessionStorage.setItem('expense_flash', message); } catch (e) { /* ignore */ } }
 function takeFlash() {
   try {
-    const message = sessionStorage.getItem(FLASH_KEY);
-    sessionStorage.removeItem(FLASH_KEY);
+    const message = sessionStorage.getItem('expense_flash');
+    sessionStorage.removeItem('expense_flash');
     return message;
-  } catch { return null; }
+  } catch (e) { return null; }
 }
 
-/* ---------- Talking to the backend ---------- */
-class ApiError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
-
-/* FastAPI sends errors as {"detail": "text"} or, for validation errors,
-   {"detail": [{"msg": "..."}, ...]}. Turn either into one readable sentence. */
-function formatDetail(detail) {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail) && detail.length) {
-    return detail
-      .map((d) => String(d.msg || 'Invalid value').replace(/^Value error, /, ''))
-      .join('. ');
-  }
-  return 'Something went wrong. Please try again.';
-}
-
-async function api(path, { method = 'GET', body, auth = true } = {}) {
+/* ---------- 3. Talking to the API ----------
+   api('/budgets')                       -> the JSON answer
+   api('/budgets', {method:'POST', body:{...}})
+   Failures throw an Error with a readable message and a .status number. */
+async function api(path, { method = 'GET', body = null, auth = true } = {}) {
   const headers = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== null) headers['Content-Type'] = 'application/json';
   const token = getToken();
   if (auth && token) headers.Authorization = `Bearer ${token}`;
 
   let response;
   try {
-    response = await fetch(path, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
+    response = await fetch(path, { method, headers, body: body !== null ? JSON.stringify(body) : undefined });
+  } catch (networkError) {
+    const error = new Error('Cannot reach the server. Check that it is running, then try again.');
+    error.status = 0;
+    throw error;
+  }
+
+  if (response.status === 401 && auth) {
+    clearToken();
+    location.replace('/');
+    const error = new Error('Please log in again.');
+    error.status = 401;
+    throw error;
   }
 
   let data = null;
-  try { data = await response.json(); } catch { /* empty body */ }
+  try { data = await response.json(); } catch (e) { /* empty answer */ }
 
-  // An expired or invalid token: clear it and send the user back to log in.
-  if (response.status === 401 && auth) {
-    clearToken();
-    setFlash('Your session ended. Please log in again.');
-    location.replace('/');
-    throw new ApiError(401, 'Session ended');
+  if (!response.ok) {
+    const error = new Error(readableError(data, response.status));
+    error.status = response.status;
+    throw error;
   }
-  if (!response.ok) throw new ApiError(response.status, formatDetail(data && data.detail));
   return data;
 }
 
-/* ---------- Money ---------- */
-const wholeFmt = new Intl.NumberFormat(CURRENCY.locale, {
-  style: 'currency', currency: CURRENCY.code, minimumFractionDigits: 0, maximumFractionDigits: 0,
-});
-const centsFmt = new Intl.NumberFormat(CURRENCY.locale, {
-  style: 'currency', currency: CURRENCY.code, minimumFractionDigits: 2, maximumFractionDigits: 2,
-});
-/* 50000 -> "₹50,000"   250.5 -> "₹250.50" */
-function money(n) {
-  return (Number.isInteger(n) ? wholeFmt : centsFmt).format(n);
+function readableError(data, status) {
+  if (data && typeof data.detail === 'string') return data.detail;
+  if (data && Array.isArray(data.detail) && data.detail.length) {
+    // FastAPI validation errors look like: "Value error, Password must be at least 8 characters"
+    const first = data.detail[0];
+    const field = first.loc ? first.loc[first.loc.length - 1] : '';
+    const text = String(first.msg || 'Invalid value').replace(/^Value error, /, '');
+    return field && field !== 'body' ? `${field}: ${text}` : text;
+  }
+  return `Something went wrong (error ${status}).`;
 }
-const currencySymbol = wholeFmt.formatToParts(0).find((p) => p.type === 'currency').value;
 
-/* ---------- Tiny DOM helpers ----------
-   Everything the user typed is put on the page with textContent (inside el()),
-   never innerHTML, so a description like "<script>" can't run as code. */
-function el(tag, props = {}, ...children) {
+/* ---------- 4. Building HTML safely ----------
+   el('li', {class:'x', text:'hello'}, child1, child2)
+   Text goes in with textContent, never innerHTML, so a description like
+   "<script>" is shown as plain text and can never run. */
+function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
+  for (const [key, value] of Object.entries(attrs)) {
     if (value === null || value === undefined || value === false) continue;
-    if (key === 'class') node.className = value;
-    else if (key === 'text') node.textContent = value;
-    else if (key.startsWith('on')) node.addEventListener(key.slice(2).toLowerCase(), value);
+    if (key === 'text') node.textContent = value;
+    else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2), value);
     else node.setAttribute(key, value === true ? '' : value);
   }
   for (const child of children.flat()) {
-    if (child !== null && child !== undefined && child !== false) node.append(child);
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child);
   }
   return node;
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+/* ---------- 5. Icons (tiny inline SVG, no files to download) ---------- */
+const ICON_PATHS = {
+  pencil: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
+  trash: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6',
+  warning: 'M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z',
+  info: 'M12 16v-4M12 8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',
+  check: 'M20 6 9 17l-5-5',
+  plus: 'M12 5v14M5 12h14',
+};
+
 function icon(name) {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'icon');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '22');
+  svg.setAttribute('height', '22');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.25');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
   svg.setAttribute('aria-hidden', 'true');
-  const use = document.createElementNS(SVG_NS, 'use');
-  use.setAttribute('href', `#i-${name}`);
-  svg.append(use);
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', ICON_PATHS[name] || '');
+  svg.append(path);
   return svg;
 }
-
-/* ---------- Footer ----------
-   Shows who runs the site, what it is, and where to ask for data deletion. */
-function renderFooter() {
-  const footer = document.querySelector('#site-footer');
-  if (!footer) return;
-  footer.replaceChildren(
-    el('p', {
-      text: `Smart Expense Tracker is a personal portfolio project by ${SITE.owner}, ${SITE.location}. `
-        + 'It is not a registered business and does not give financial advice.',
-    }),
-    el('p', {},
-      'Contact: ', el('a', { href: `mailto:${SITE.contact}`, text: SITE.contact }),
-      ' · ', el('a', { href: 'privacy.html', text: 'Privacy and data deletion' })),
-  );
-}
-renderFooter();

@@ -60,7 +60,7 @@ def test_date_can_be_in_the_past(client, headers):
     last_week = str(date.today() - timedelta(days=7))
     response = add(client, headers, transaction_date=last_week)
     assert response.status_code == 200
-    assert response.json()["created_at"].startswith(last_week)
+    assert response.json()["transaction_date"] == last_week
 
 
 def test_date_far_in_the_future_is_rejected(client, headers):
@@ -167,3 +167,22 @@ def test_user_cannot_change_or_delete_someone_elses_transaction(client):
     assert client.put(f"/transactions/{created['id']}", headers=second, json=body).status_code == 403
     assert client.delete(f"/transactions/{created['id']}", headers=second).status_code == 403
     assert client.get("/transactions", headers=first).json()[0]["description"] == "Swiggy dinner"
+
+
+def test_transaction_date_defaults_to_today(client, headers):
+    from datetime import date
+    response = add(client, headers, "coffee")
+    assert response.json()["transaction_date"] == date.today().isoformat()
+
+
+def test_money_is_exact(client, headers):
+    # Ordinary decimals would turn 0.1 + 0.2 into 0.30000000000000004
+    add(client, headers, "first", amount=0.1)
+    add(client, headers, "second", amount=0.2)
+    summary = client.get("/summary", headers=headers).json()
+    assert summary["total_expense"] == 0.3
+
+
+def test_amount_is_kept_to_two_decimals(client, headers):
+    response = add(client, headers, "odd amount", amount=10.005)
+    assert response.json()["amount"] == 10.01

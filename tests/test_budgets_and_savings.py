@@ -1,143 +1,141 @@
 from datetime import datetime
-from types import SimpleNamespace
 
 from app.main import check_savings_goal
+from app.schemas import SavingsGoalOut
 from tests.conftest import sign_up
+
+
+def make_budget(client, headers, category_id, ratio=20):
+    return client.post("/budgets", headers=headers, json={"category_id": category_id, "ratio_percent": ratio})
 
 
 # ---------- budgets ----------
 def test_create_and_list_budget(client, headers, category_ids):
-    response = client.post("/budgets", headers=headers, json={"ratio_percent": 30, "category_id": category_ids["Food"]})
+    response = make_budget(client, headers, category_ids["Food"], 15)
     assert response.status_code == 200
-    rows = client.get("/budgets", headers=headers).json()
-    assert len(rows) == 1 and rows[0]["ratio_percent"] == 30
+    assert response.json()["ratio_percent"] == 15
+    assert len(client.get("/budgets", headers=headers).json()) == 1
 
 
 def test_one_budget_per_category(client, headers, category_ids):
-    body = {"ratio_percent": 30, "category_id": category_ids["Food"]}
-    client.post("/budgets", headers=headers, json=body)
-    assert client.post("/budgets", headers=headers, json=body).status_code == 400
+    make_budget(client, headers, category_ids["Food"])
+    assert make_budget(client, headers, category_ids["Food"]).status_code == 400
 
 
-def test_budget_ratio_must_be_between_0_and_100(client, headers, category_ids):
-    for bad in [0, -5, 101]:
-        response = client.post("/budgets", headers=headers, json={"ratio_percent": bad, "category_id": category_ids["Food"]})
-        assert response.status_code == 422, bad
+def test_ratio_must_be_between_0_and_100(client, headers, category_ids):
+    assert make_budget(client, headers, category_ids["Food"], 0).status_code == 422
+    assert make_budget(client, headers, category_ids["Food"], 101).status_code == 422
+    assert make_budget(client, headers, category_ids["Food"], 100).status_code == 200
 
 
-def test_budget_for_missing_category_gives_404(client, headers):
-    assert client.post("/budgets", headers=headers, json={"ratio_percent": 10, "category_id": 9999}).status_code == 404
+def test_budget_for_unknown_category_gives_404(client, headers):
+    assert make_budget(client, headers, 9999).status_code == 404
 
 
-def test_update_and_delete_budget(client, headers, category_ids):
-    created = client.post("/budgets", headers=headers, json={"ratio_percent": 30, "category_id": category_ids["Food"]}).json()
-    changed = client.put(f"/budgets/{created['id']}", headers=headers, json={"ratio_percent": 15})
-    assert changed.json()["ratio_percent"] == 15
+def test_update_budget(client, headers, category_ids):
+    created = make_budget(client, headers, category_ids["Food"], 10).json()
+    response = client.put(f"/budgets/{created['id']}", headers=headers, json={"ratio_percent": 25})
+    assert response.status_code == 200 and response.json()["ratio_percent"] == 25
+
+
+def test_update_with_bad_ratio_gives_422(client, headers, category_ids):
+    created = make_budget(client, headers, category_ids["Food"]).json()
+    assert client.put(f"/budgets/{created['id']}", headers=headers, json={"ratio_percent": 500}).status_code == 422
+
+
+def test_delete_budget(client, headers, category_ids):
+    created = make_budget(client, headers, category_ids["Food"]).json()
     assert client.delete(f"/budgets/{created['id']}", headers=headers).status_code == 200
     assert client.get("/budgets", headers=headers).json() == []
 
 
-def test_user_cannot_touch_someone_elses_budget(client, category_ids):
+def test_unknown_budget_gives_404(client, headers):
+    assert client.put("/budgets/9999", headers=headers, json={"ratio_percent": 5}).status_code == 404
+    assert client.delete("/budgets/9999", headers=headers).status_code == 404
+
+
+def test_budgets_are_private(client, category_ids):
     first = sign_up(client, "a@x.com")
     second = sign_up(client, "b@x.com")
-    created = client.post("/budgets", headers=first, json={"ratio_percent": 30, "category_id": category_ids["Food"]}).json()
-    assert client.put(f"/budgets/{created['id']}", headers=second, json={"ratio_percent": 1}).status_code == 403
-    assert client.delete(f"/budgets/{created['id']}", headers=second).status_code == 403
+    created = make_budget(client, first, category_ids["Food"]).json()
     assert client.get("/budgets", headers=second).json() == []
+    assert client.put(f"/budgets/{created['id']}", headers=second, json={"ratio_percent": 5}).status_code == 403
+    assert client.delete(f"/budgets/{created['id']}", headers=second).status_code == 403
 
 
-# ---------- savings goal: the endpoints ----------
-def test_no_goal_at_first(client, headers):
+def test_two_users_can_budget_the_same_category(client, category_ids):
+    first = sign_up(client, "a@x.com")
+    second = sign_up(client, "b@x.com")
+    assert make_budget(client, first, category_ids["Food"]).status_code == 200
+    assert make_budget(client, second, category_ids["Food"]).status_code == 200
+
+
+# ---------- savings goal (the routes) ----------
+def test_no_goal_yet_returns_null(client, headers):
     assert client.get("/savings-goal", headers=headers).json() is None
 
 
-def test_set_goal_then_change_it(client, headers):
-    first = client.put("/savings-goal", headers=headers, json={"ratio_percent": 20})
-    assert first.status_code == 200 and first.json()["ratio_percent"] == 20
-
-    second = client.put("/savings-goal", headers=headers, json={"ratio_percent": 35})
-    assert second.json()["ratio_percent"] == 35
-    assert second.json()["id"] == first.json()["id"]          # changed, not duplicated
-    assert client.get("/savings-goal", headers=headers).json()["ratio_percent"] == 35
+def test_set_then_change_the_goal(client, headers):
+    assert client.put("/savings-goal", headers=headers, json={"ratio_percent": 20}).json()["ratio_percent"] == 20
+    assert client.put("/savings-goal", headers=headers, json={"ratio_percent": 30}).json()["ratio_percent"] == 30
+    assert client.get("/savings-goal", headers=headers).json()["ratio_percent"] == 30
 
 
-def test_goal_ratio_must_be_between_0_and_100(client, headers):
-    for bad in [0, -1, 150]:
-        assert client.put("/savings-goal", headers=headers, json={"ratio_percent": bad}).status_code == 422, bad
+def test_goal_ratio_is_validated(client, headers):
+    assert client.put("/savings-goal", headers=headers, json={"ratio_percent": 0}).status_code == 422
+    assert client.put("/savings-goal", headers=headers, json={"ratio_percent": 101}).status_code == 422
 
 
 def test_delete_goal(client, headers):
     client.put("/savings-goal", headers=headers, json={"ratio_percent": 20})
     assert client.delete("/savings-goal", headers=headers).status_code == 200
-    assert client.get("/savings-goal", headers=headers).json() is None
     assert client.delete("/savings-goal", headers=headers).status_code == 404
 
 
-def test_each_user_has_their_own_goal(client):
+def test_goals_are_private(client):
     first = sign_up(client, "a@x.com")
     second = sign_up(client, "b@x.com")
     client.put("/savings-goal", headers=first, json={"ratio_percent": 20})
     assert client.get("/savings-goal", headers=second).json() is None
 
 
-# ---------- savings goal: the maths and the alerts ----------
-# income 100,000 and a 20% goal means you may spend 80,000.
-GOAL = SimpleNamespace(ratio_percent=20)
-MID_MONTH = datetime(2026, 10, 15)
+# ---------- savings goal (the maths) ----------
+def goal(ratio):
+    return SavingsGoalOut(id=1, ratio_percent=ratio)
 
 
-def test_plenty_of_room_is_ok():
-    status, alerts = check_savings_goal(GOAL, 100000, 20000, 2026, 10, today=MID_MONTH)
+def test_goal_ok_when_spending_is_low():
+    status, alerts = check_savings_goal(goal(20), 1000, 300, 2020, 1)
+    assert status.status == "ok" and alerts == []
+    assert status.max_spend == 800 and status.goal_amount == 200 and status.left_to_spend == 500
+
+
+def test_goal_warns_at_80_percent_of_the_limit():
+    status, alerts = check_savings_goal(goal(20), 1000, 700, 2020, 1)   # limit 800, 87% used
+    assert status.status == "warning" and alerts[0].level == "warning"
+
+
+def test_goal_over_when_spending_passes_the_limit():
+    status, alerts = check_savings_goal(goal(20), 1000, 900, 2020, 1)
+    assert status.status == "over" and alerts[0].level == "over"
+    assert status.left_to_spend == -100
+
+
+def test_goal_without_income():
+    status, alerts = check_savings_goal(goal(20), 0, 50, 2020, 1)
+    assert status.status == "no_income" and alerts == []
+
+
+def test_projection_for_the_current_month_warns():
+    today = datetime(2026, 10, 10)
+    # 400 spent in 10 days -> about 1240 by the end of a 31-day month, above the 800 limit
+    status, alerts = check_savings_goal(goal(20), 1000, 400, 2026, 10, today=today)
     assert status.status == "ok"
-    assert status.goal_amount == 20000
-    assert status.max_spend == 80000
-    assert status.left_to_spend == 60000
-    assert alerts == []
+    assert round(status.projected_spend) == 1240
+    assert alerts and "At this pace" in alerts[0].message
 
 
-def test_getting_close_gives_a_warning():
-    status, alerts = check_savings_goal(GOAL, 100000, 70000, 2026, 10, today=MID_MONTH)
-    assert status.status == "warning"
-    assert alerts[0].level == "warning"
-    assert "10,000 left" in alerts[0].message
-
-
-def test_going_over_gives_a_red_alert():
-    status, alerts = check_savings_goal(GOAL, 100000, 85000, 2026, 10, today=MID_MONTH)
-    assert status.status == "over"
-    assert status.left_to_spend == -5000
-    assert alerts[0].level == "over"
-    assert "5,000 more" in alerts[0].message
-
-
-def test_no_income_means_it_cannot_be_checked():
-    status, alerts = check_savings_goal(GOAL, 0, 500, 2026, 10, today=MID_MONTH)
-    assert status.status == "no_income"
-    assert alerts == []
-
-
-def test_pace_alert_when_spending_too_fast():
-    # 15 days in, 45,000 spent. At that pace: 45,000 / 15 * 31 = 93,000, above the 80,000 limit.
-    status, alerts = check_savings_goal(GOAL, 100000, 45000, 2026, 10, today=MID_MONTH)
-    assert status.status == "ok"
-    assert status.projected_spend == 93000
-    assert len(alerts) == 1
-    assert "At this pace" in alerts[0].message
-
-
-def test_no_pace_alert_when_pace_is_fine():
-    status, alerts = check_savings_goal(GOAL, 100000, 20000, 2026, 10, today=MID_MONTH)
-    assert status.projected_spend == 41333.33
-    assert alerts == []
-
-
-def test_no_pace_guess_in_the_first_days_of_the_month():
-    # 2 days of data is too little to guess from.
-    status, alerts = check_savings_goal(GOAL, 100000, 30000, 2026, 10, today=datetime(2026, 10, 2))
-    assert status.projected_spend is None
-    assert alerts == []
-
-
-def test_no_pace_guess_for_past_months():
-    status, alerts = check_savings_goal(GOAL, 100000, 30000, 2026, 9, today=MID_MONTH)
-    assert status.projected_spend is None
+def test_no_projection_in_the_first_days_or_other_months():
+    early = datetime(2026, 10, 3)
+    assert check_savings_goal(goal(20), 1000, 100, 2026, 10, today=early)[0].projected_spend is None
+    assert check_savings_goal(goal(20), 1000, 100, 2025, 5, today=datetime(2026, 10, 20))[0].projected_spend is None

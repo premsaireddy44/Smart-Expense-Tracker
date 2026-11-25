@@ -6,3 +6,8 @@ venv/
 .venv/
 *.pyc
 .myenv/
+
+# added in Version 2
+*.sql
+test.db
+ml/model.joblib

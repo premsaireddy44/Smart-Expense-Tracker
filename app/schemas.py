@@ -4,13 +4,27 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, computed_field, field_validator
 
 from app.categorizer import INCOME_CATEGORIES
+from app.rates import SUPPORTED as SUPPORTED_CURRENCIES
 from app.models import TransactionType
 
 
 # ---------- Users ----------
+def _check_currency(value):
+    value = str(value).strip().upper()
+    if value not in SUPPORTED_CURRENCIES:
+        raise ValueError("Currency must be one of: " + ", ".join(SUPPORTED_CURRENCIES))
+    return value
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+    currency: str = "INR"          # the currency this person spends in
+
+    @field_validator("currency")
+    @classmethod
+    def currency_must_be_supported(cls, value):
+        return _check_currency(value)
 
     @field_validator("email")
     @classmethod
@@ -40,8 +54,29 @@ class UserLogin(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: EmailStr
+    living_currency: str = "INR"
+    home_currency: str = "INR"
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileIn(BaseModel):
+    living_currency: str       # what you spend in
+    home_currency: str         # what you compare against
+
+    @field_validator("living_currency", "home_currency")
+    @classmethod
+    def currency_must_be_supported(cls, value):
+        return _check_currency(value)
+
+
+class RateOut(BaseModel):
+    base: str
+    target: str
+    rate: float
+    date: Optional[str] = None
+    amount: Optional[float] = None
+    converted: Optional[float] = None
 
 
 # ---------- Categories ----------
@@ -60,6 +95,8 @@ class CategoryOut(BaseModel):
 class SuggestionOut(BaseModel):
     category_id: Optional[int] = None
     category_name: Optional[str] = None
+    confidence: Optional[float] = None
+    source: Optional[str] = None        # "memory", "model" or "rules"
 
 
 # ---------- Transactions ----------
@@ -83,6 +120,8 @@ class TransactionCreate(BaseModel):
     def amount_must_be_positive(cls, value):
         if value <= 0:
             raise ValueError("Amount must be greater than 0")
+        if value > 9_999_999_999:
+            raise ValueError("Amount is too large")
         return value
 
     @field_validator("transaction_date")
@@ -100,8 +139,10 @@ class TransactionOut(BaseModel):
     description: str
     amount: float
     type: TransactionType
+    transaction_date: date
     created_at: datetime
     category_id: Optional[int] = None
+    category_source: Optional[str] = None   # "user", "accepted", "memory", "model", "rules" or empty
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -201,3 +242,69 @@ class TrendPoint(BaseModel):
     month: str
     income: float
     expense: float
+
+
+# ---------------------------------------------------------------- analytics
+class MonthPoint(BaseModel):
+    month: str
+    income: float
+    expense: float
+    savings: float
+
+
+class CategoryChange(BaseModel):
+    category: str
+    this_month: float
+    last_month: float
+    change_percent: Optional[float] = None
+
+
+class Merchant(BaseModel):
+    name: str
+    total: float
+    count: int
+
+
+class WeekdaySpend(BaseModel):
+    day: str
+    total: float
+
+
+class UnusualSpend(BaseModel):
+    description: str
+    category: str
+    amount: float
+    usual_limit: float
+    date: str
+
+
+class FinancialYear(BaseModel):
+    label: str
+    start: str
+    income: float
+    expense: float
+    savings: float
+
+
+class MonthEnd(BaseModel):
+    spent_so_far: float
+    estimate: float
+    days_left: int
+
+
+class SuggestionAccuracy(BaseModel):
+    checked: int
+    kept: int
+    percent: Optional[int] = None
+
+
+class AnalyticsOut(BaseModel):
+    months: list[MonthPoint]
+    category_changes: list[CategoryChange]
+    top_merchants: list[Merchant]
+    weekdays: list[WeekdaySpend]
+    unusual: list[UnusualSpend]
+    financial_year: FinancialYear
+    month_end: MonthEnd
+    suggestion_accuracy: SuggestionAccuracy
+    insights: list[str]

@@ -1,5 +1,8 @@
 import calendar
+import os
+from contextlib import asynccontextmanager
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -9,21 +12,52 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import auth, models, schemas
-from app.categorizer import suggest_category
-from app.database import Base, engine, get_db
+from app import analytics, auth, ml_categorizer, models, ratelimit, rates, schemas
+from app.suggestions import suggest_category_for
+from app.database import get_db
 
-app = FastAPI(title="Smart Expense Tracker API")
+# On a live server set APP_ENV=production in the environment: the public /docs pages are then switched off.
+IS_PRODUCTION = os.getenv("APP_ENV", "development") == "production"
 
-Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app):
+    """Runs once when the server starts: load the category model, so the first suggestion is as fast as the rest."""
+    ml_categorizer.load_model()
+    yield
+
+
+app = FastAPI(
+    lifespan=lifespan,
+    title="Smart Expense Tracker API",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None,
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
+
+@app.middleware("http")
+async def no_cache_for_pages(request, call_next):
+    """Always ask the server for fresh page files, so an old copy in the browser cannot break the app."""
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+# Tables are created and changed by Alembic (see the alembic/ folder), not here.
 
 
 # ---------------------------------------------------------------- helpers
 def month_range(year: int, month: int):
-    """First day of the month and first day of the next month."""
-    start = datetime(year, month, 1)
-    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    """First day of the month and first day of the next month (plain dates)."""
+    start = date(year, month, 1)
+    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     return start, end
+
+
+def to_money(value) -> Decimal:
+    """Turn a number into exact money with 2 decimal places (0.1 + 0.2 never drifts)."""
+    return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def check_period(year: Optional[int], month: Optional[int]):
@@ -53,8 +87,8 @@ def total_by_type(db: Session, user_id: int, tx_type, start, end) -> float:
         .filter(
             models.Transaction.owner_id == user_id,
             models.Transaction.type == tx_type,
-            models.Transaction.created_at >= start,
-            models.Transaction.created_at < end,
+            models.Transaction.transaction_date >= start,
+            models.Transaction.transaction_date < end,
         )
         .scalar()
     )
@@ -130,7 +164,12 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    new_user = models.User(email=user.email, hashed_password=auth.hash_password(user.password))
+    new_user = models.User(
+        email=user.email,
+        hashed_password=auth.hash_password(user.password),
+        living_currency=user.currency,
+        home_currency=user.currency,
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -139,10 +178,20 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
+    wait = ratelimit.seconds_to_wait(credentials.email)
+    if wait > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many wrong passwords. Please try again in {wait // 60 + 1} minutes.",
+            headers={"Retry-After": str(wait)},
+        )
+
     user = db.query(models.User).filter(func.lower(models.User.email) == credentials.email).first()
     if not user or not auth.verify_password(credentials.password, user.hashed_password):
+        ratelimit.record_failure(credentials.email)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    ratelimit.clear(credentials.email)
     access_token = auth.create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -150,6 +199,40 @@ def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
 @app.get("/me", response_model=schemas.UserOut)
 def read_current_user(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+@app.put("/me/profile", response_model=schemas.UserOut)
+def update_profile(
+    profile: schemas.ProfileIn,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Which currency you spend in, and which one you compare against. Amounts are not changed."""
+    current_user.living_currency = profile.living_currency
+    current_user.home_currency = profile.home_currency
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@app.get("/rates", response_model=schemas.RateOut)
+def get_exchange_rate(
+    base: str = Query(..., alias="from"),
+    target: str = Query(..., alias="to"),
+    amount: Optional[float] = Query(None, ge=0, le=9_999_999_999),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Live exchange rate, and optionally an amount converted with it."""
+    base, target = base.upper(), target.upper()
+    for code in (base, target):
+        if code not in rates.SUPPORTED:
+            raise HTTPException(status_code=422, detail=f"Unsupported currency: {code}")
+    try:
+        rate, day = rates.get_rate(base, target)
+    except rates.RatesUnavailable:
+        raise HTTPException(status_code=503, detail="Exchange rates are unavailable right now. Try again later.")
+    converted = round(amount * rate, 2) if amount is not None else None
+    return schemas.RateOut(base=base, target=target, rate=rate, date=day, amount=amount, converted=converted)
 
 
 @app.delete("/me")
@@ -186,12 +269,13 @@ def suggest(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
-    name = suggest_category(description, tx_type)
-    if name:
-        match = db.query(models.Category).filter(models.Category.name == name).first()
-        if match:
-            return schemas.SuggestionOut(category_id=match.id, category_name=match.name)
-    return schemas.SuggestionOut()
+    found = suggest_category_for(db, current_user.id, description, tx_type)
+    return schemas.SuggestionOut(
+        category_id=found.category_id,
+        category_name=found.category_name,
+        confidence=found.confidence,
+        source=found.source,
+    )
 
 
 # ---------------------------------------------------------------- transactions
@@ -201,28 +285,30 @@ def create_transaction(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Ask for a suggestion every time, even when the user picked a category themselves:
+    # comparing the two is how we measure (and later improve) the suggestions.
+    found = suggest_category_for(db, current_user.id, transaction.description, transaction.type)
+
     category_id = transaction.category_id
     if category_id is not None:
         require_category(db, category_id)
+        # They kept our suggestion ("accepted") or chose something else ("user").
+        category_source = "accepted" if category_id == found.category_id else "user"
     else:
-        name = suggest_category(transaction.description, transaction.type)
-        if name:
-            match = db.query(models.Category).filter(models.Category.name == name).first()
-            if match:
-                category_id = match.id
+        category_id = found.category_id          # nothing chosen: use the suggestion, if there is one
+        category_source = found.source
 
-    values = dict(
+    new_transaction = models.Transaction(
         description=transaction.description,
-        amount=transaction.amount,
+        amount=to_money(transaction.amount),
         type=transaction.type,
+        transaction_date=transaction.transaction_date or date.today(),
         category_id=category_id,
+        category_source=category_source,
+        suggested_category_id=found.category_id,
+        suggestion_confidence=found.confidence,
         owner_id=current_user.id,
     )
-    # A past date was chosen: use it. Otherwise the database stamps "now".
-    if transaction.transaction_date and transaction.transaction_date != date.today():
-        values["created_at"] = datetime.combine(transaction.transaction_date, datetime.now().time())
-
-    new_transaction = models.Transaction(**values)
     db.add(new_transaction)
     db.commit()
     db.refresh(new_transaction)
@@ -245,14 +331,14 @@ def list_transactions(
     query = db.query(models.Transaction).filter(models.Transaction.owner_id == current_user.id)
     if year is not None:
         start, end = month_range(year, month)
-        query = query.filter(models.Transaction.created_at >= start, models.Transaction.created_at < end)
+        query = query.filter(models.Transaction.transaction_date >= start, models.Transaction.transaction_date < end)
     if tx_type is not None:
         query = query.filter(models.Transaction.type == tx_type)
     if category_id is not None:
         query = query.filter(models.Transaction.category_id == category_id)
 
     return (
-        query.order_by(models.Transaction.created_at.desc(), models.Transaction.id.desc())
+        query.order_by(models.Transaction.transaction_date.desc(), models.Transaction.id.desc())
         .offset(skip)
         .limit(limit)
         .all()
@@ -270,11 +356,14 @@ def update_transaction(
     require_category(db, updated.category_id)
 
     transaction.description = updated.description
-    transaction.amount = updated.amount
+    transaction.amount = to_money(updated.amount)
     transaction.type = updated.type
+    if updated.category_id != transaction.category_id:
+        # The user changed the category by hand: remember that it was their choice.
+        transaction.category_source = "user" if updated.category_id is not None else None
     transaction.category_id = updated.category_id
-    if updated.transaction_date and transaction.created_at.date() != updated.transaction_date:
-        transaction.created_at = datetime.combine(updated.transaction_date, transaction.created_at.time())
+    if updated.transaction_date:
+        transaction.transaction_date = updated.transaction_date
 
     db.commit()
     db.refresh(transaction)
@@ -432,8 +521,8 @@ def get_summary(
         .filter(
             models.Transaction.owner_id == current_user.id,
             models.Transaction.type == models.TransactionType.expense,
-            models.Transaction.created_at >= start,
-            models.Transaction.created_at < end,
+            models.Transaction.transaction_date >= start,
+            models.Transaction.transaction_date < end,
         )
         .group_by(models.Transaction.category_id)
         .order_by(total_spent.desc())
@@ -518,18 +607,18 @@ def get_trend(
             y, m = y - 1, 12
     labels.reverse()
 
-    start = datetime(int(labels[0][:4]), int(labels[0][5:]), 1)
+    start = date(int(labels[0][:4]), int(labels[0][5:]), 1)
     rows = (
-        db.query(models.Transaction.created_at, models.Transaction.type, models.Transaction.amount)
-        .filter(models.Transaction.owner_id == current_user.id, models.Transaction.created_at >= start)
+        db.query(models.Transaction.transaction_date, models.Transaction.type, models.Transaction.amount)
+        .filter(models.Transaction.owner_id == current_user.id, models.Transaction.transaction_date >= start)
         .all()
     )
 
     # pandas: one table of rows, then "sum amount for each (month, type)"
-    df = pd.DataFrame(rows, columns=["created_at", "type", "amount"])
+    df = pd.DataFrame(rows, columns=["transaction_date", "type", "amount"])
     totals = {}
     if not df.empty:
-        df["month"] = [f"{d.year}-{d.month:02d}" for d in df["created_at"]]
+        df["month"] = [f"{d.year}-{d.month:02d}" for d in df["transaction_date"]]
         df["type"] = [t.value for t in df["type"]]
         totals = df.groupby(["month", "type"])["amount"].sum().to_dict()
 
@@ -541,6 +630,37 @@ def get_trend(
         )
         for label in labels
     ]
+
+
+# ---------------------------------------------------------------- analytics
+@app.get("/analytics", response_model=schemas.AnalyticsOut)
+def get_analytics(
+    fy: str = Query("uk", pattern="^(uk|india)$"),
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Deeper numbers for the Analytics tab. pandas does the maths in app/analytics.py."""
+    rows = (
+        db.query(
+            models.Transaction.transaction_date,
+            models.Transaction.amount,
+            models.Transaction.type,
+            models.Category.name,
+            models.Transaction.description,
+            models.Transaction.category_source,
+            models.Transaction.suggested_category_id,
+        )
+        .outerjoin(models.Category, models.Category.id == models.Transaction.category_id)
+        .filter(models.Transaction.owner_id == current_user.id)
+        .all()
+    )
+    df = pd.DataFrame(rows, columns=["date", "amount", "type", "category", "description",
+                                     "category_source", "suggested_category_id"])
+    df["date"] = pd.to_datetime(df["date"])
+    df["amount"] = df["amount"].astype(float)
+    df["type"] = df["type"].map(lambda t: getattr(t, "value", t))
+    df["category"] = df["category"].fillna("Uncategorized")
+    return analytics.build_analytics(df, date.today(), fy)
 
 
 # ---------------------------------------------------------------- frontend

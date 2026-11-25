@@ -1,12 +1,8 @@
-"""Shared set-up for all tests.
-
-The tests never touch your real Postgres database. Each test gets a brand-new
-SQLite database that lives in memory and disappears afterwards. This works because
-FastAPI lets us swap `get_db` for our own version (dependency_overrides).
-"""
+"""Shared test setup. Every test gets a brand-new, empty, in-memory database,
+so tests never touch your real PostgreSQL data and never affect each other."""
 import os
 
-# These must be set BEFORE the app is imported, so the app does not look for a real database.
+# These must be set BEFORE the app is imported, because the app reads them at import time.
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["SECRET_KEY"] = "test-secret-key"
 
@@ -20,23 +16,16 @@ from app import models
 from app.categorizer import KEYWORDS
 from app.database import Base, get_db
 from app.main import app
+from app import ratelimit
 
 
 @pytest.fixture()
 def session_factory():
-    """A fresh empty database with the categories already added."""
+    # StaticPool = one shared connection, so the in-memory database is the same everywhere.
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(bind=engine)
-    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
-    db = factory()
-    for name in list(KEYWORDS.keys()) + ["Other"]:
-        db.add(models.Category(name=name))
-    db.commit()
-    db.close()
-
-    yield factory
-    engine.dispose()
+    yield sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()
@@ -49,21 +38,25 @@ def client(session_factory):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    ratelimit.failed_logins.clear()      # forget failed logins from earlier tests
     yield TestClient(app)
     app.dependency_overrides.clear()
 
 
 @pytest.fixture()
 def category_ids(session_factory):
-    """{"Food": 1, "Rent": 3, ...}"""
+    """Put every category in the database and return {"Food": 1, ...}."""
     db = session_factory()
-    ids = {c.name: c.id for c in db.query(models.Category).all()}
+    for name in list(KEYWORDS) + ["Other"]:
+        db.add(models.Category(name=name))
+    db.commit()
+    result = {c.name: c.id for c in db.query(models.Category).all()}
     db.close()
-    return ids
+    return result
 
 
-def sign_up(client, email="a@x.com", password="password1"):
-    """Register + log in. Returns the headers to send with later requests."""
+def sign_up(client, email="user@x.com", password="password123"):
+    """Register + log in. Returns the headers a logged-in browser would send."""
     client.post("/register", json={"email": email, "password": password})
     token = client.post("/login", json={"email": email, "password": password}).json()["access_token"]
     return {"Authorization": f"Bearer {token}"}

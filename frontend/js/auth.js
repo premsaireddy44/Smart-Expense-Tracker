@@ -1,88 +1,104 @@
 'use strict';
 
-/* =====================================================================
-   auth.js - the log in / create account page
-   ===================================================================== */
+/* auth.js - the login / create-account page */
 
-let mode = 'login'; // or 'register'
+// Already logged in? Go straight to the app. (The app checks the token again.)
+if (getToken()) location.replace('/app.html');
 
-const form = document.querySelector('#auth-form');
-const emailInput = document.querySelector('#email');
-const passwordInput = document.querySelector('#password');
-const errorBox = document.querySelector('#auth-error');
-const submitButton = document.querySelector('#auth-submit');
+const tabs = { login: $('#tab-login'), register: $('#tab-register') };
+const panels = { login: $('#panel-login'), register: $('#panel-register') };
 
-// A message left by api() when a session expired.
-const flash = takeFlash();
-if (flash) {
-  const notice = document.querySelector('#notice');
-  notice.textContent = flash;
-  notice.hidden = false;
+function showTab(name) {
+  for (const key of Object.keys(tabs)) {
+    const active = key === name;
+    tabs[key].setAttribute('aria-selected', String(active));
+    tabs[key].tabIndex = active ? 0 : -1;
+    panels[key].hidden = !active;
+  }
 }
 
-function setMode(next) {
-  mode = next;
-  const isRegister = next === 'register';
-  document.querySelector('#auth-title').textContent = isRegister ? 'Create your account' : 'Log in';
-  submitButton.textContent = isRegister ? 'Create account' : 'Log in';
-  document.querySelector('#mode-login').setAttribute('aria-pressed', String(!isRegister));
-  document.querySelector('#mode-register').setAttribute('aria-pressed', String(isRegister));
-  document.querySelector('#pw-hint').hidden = !isRegister;
-  document.querySelector('#age-row').hidden = !isRegister;
-  passwordInput.autocomplete = isRegister ? 'new-password' : 'current-password';
-  errorBox.textContent = '';
-}
-
-document.querySelector('#mode-login').addEventListener('click', () => setMode('login'));
-document.querySelector('#mode-register').addEventListener('click', () => setMode('register'));
-
-document.querySelector('#pw-toggle').addEventListener('click', (event) => {
-  const show = passwordInput.type === 'password';
-  passwordInput.type = show ? 'text' : 'password';
-  event.currentTarget.textContent = show ? 'Hide' : 'Show';
+Object.entries(tabs).forEach(([name, button]) => {
+  button.addEventListener('click', () => showTab(name));
+  // Arrow keys move between the two tabs, like a normal tab control.
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      const other = name === 'login' ? 'register' : 'login';
+      showTab(other);
+      tabs[other].focus();
+    }
+  });
 });
 
-form.addEventListener('submit', async (event) => {
+const flash = takeFlash();
+if (flash) {
+  $('#flash').textContent = flash;
+  $('#flash').hidden = false;
+}
+
+function markInvalid(input, bad) { input.toggleAttribute('aria-invalid', bad); }
+
+async function logIn(email, password) {
+  const result = await api('/login', { method: 'POST', body: { email, password }, auth: false });
+  setToken(result.access_token);
+  location.replace('/app.html');
+}
+
+panels.login.addEventListener('submit', async (event) => {
   event.preventDefault();
-  errorBox.textContent = '';
-
-  const email = emailInput.value.trim();
-  const password = passwordInput.value;
-
-  if (!email || !password) {
-    errorBox.textContent = 'Enter your email and password.';
+  const email = $('#login-email');
+  const password = $('#login-password');
+  const error = $('#login-error');
+  error.textContent = '';
+  markInvalid(email, !email.value.trim());
+  markInvalid(password, !password.value);
+  if (!email.value.trim() || !password.value) {
+    error.textContent = 'Enter your email and password.';
+    (email.value.trim() ? password : email).focus();
     return;
   }
-  if (mode === 'register' && password.length < 8) {
-    errorBox.textContent = 'Use at least 8 characters for your password.';
-    return;
-  }
-
-  if (mode === 'register' && !document.querySelector('#age').checked) {
-    errorBox.textContent = 'Please confirm that you are 18 or older.';
-    return;
-  }
-
-  submitButton.disabled = true;
+  const button = $('#login-submit');
+  button.disabled = true;
   try {
-    if (mode === 'register') {
-      await api('/register', { method: 'POST', body: { email, password }, auth: false });
-    }
-    // Registering does not log you in, so we log in right after.
-    const data = await api('/login', { method: 'POST', body: { email, password }, auth: false });
-    setToken(data.access_token);
-    location.href = '/app.html';
-  } catch (error) {
-    submitButton.disabled = false;
-    // Email already has an account: move them to Log in with a clear message.
-    if (mode === 'register' && error.status === 400 && /already/i.test(error.message)) {
-      setMode('login');
-      const notice = document.querySelector('#notice');
-      notice.textContent = 'You already have an account with this email. Enter your password to log in.';
-      notice.hidden = false;
-      passwordInput.focus();
-      return;
-    }
-    errorBox.textContent = error.message;
+    await logIn(email.value.trim(), password.value);
+  } catch (err) {
+    error.textContent = err.message;      // includes "Too many wrong passwords..." after 5 failures
+    button.disabled = false;
   }
+});
+
+panels.register.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const email = $('#reg-email');
+  const password = $('#reg-password');
+  const age = $('#reg-age');
+  const error = $('#reg-error');
+  error.textContent = '';
+  $('#reg-exists').hidden = true;
+
+  markInvalid(email, !email.value.trim());
+  markInvalid(password, password.value.length < 8);
+  markInvalid(age, !age.checked);
+  if (!email.value.trim()) { error.textContent = 'Enter your email.'; email.focus(); return; }
+  if (password.value.length < 8) { error.textContent = 'Your password needs at least 8 characters.'; password.focus(); return; }
+  if (!age.checked) { error.textContent = 'Please confirm the box about age and privacy.'; age.focus(); return; }
+
+  const button = $('#reg-submit');
+  button.disabled = true;
+  try {
+    await api('/register', { method: 'POST', body: { email: email.value.trim(), password: password.value, currency: $('#reg-currency').value }, auth: false });
+    await logIn(email.value.trim(), password.value);
+  } catch (err) {
+    if (err.message === 'Email already registered') {
+      $('#reg-exists').hidden = false;
+    } else {
+      error.textContent = err.message;
+    }
+    button.disabled = false;
+  }
+});
+
+$('#reg-go-login').addEventListener('click', () => {
+  $('#login-email').value = $('#reg-email').value;
+  showTab('login');
+  $('#login-password').focus();
 });

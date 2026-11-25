@@ -3,86 +3,75 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Log in - Smart Expense Tracker</title>
-  <link rel="stylesheet" href="css/style.css">
+  <title>Smart Expense Tracker - Log in</title>
+  <meta name="description" content="Track spending, set budgets and see where your money goes.">
+  <script src="/js/theme.js?v=3"></script>
+  <link rel="stylesheet" href="/css/style.css?v=3">
 </head>
-<body>
-  <a class="skip-link" href="#auth-form">Skip to the log in form</a>
+<body class="auth-page">
+  <a class="skip-link" href="#main">Skip to the login form</a>
 
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M6 20v-7M12 20V5M18 20v-10"/></symbol>
-  </svg>
-
-  <div class="auth">
-    <aside class="auth-side">
-      <div class="brand">
-        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-bars"/></svg></span>
-        <span class="brand-name">Smart Expense Tracker</span>
-      </div>
-
-      <h1>Know where your money goes.</h1>
-      <p class="auth-lead">A simple way to track what you earn and spend, and to stay on track with your savings.</p>
-
-      <ol class="auth-steps" aria-label="How it works">
-        <li>
-          <div><strong>Add what you spent or earned</strong>
-          <span>Type "Swiggy 250" or "+50000 salary", or use the big buttons.</span></div>
-        </li>
-        <li>
-          <div><strong>Check the category</strong>
-          <span>We suggest one from your words. Change it if it is wrong, then save.</span></div>
-        </li>
-        <li>
-          <div><strong>Set your limits</strong>
-          <span>Give each category a share of your income, and choose how much you want to save.</span></div>
-        </li>
-        <li>
-          <div><strong>Get warned early</strong>
-          <span>Alerts appear before you overspend or put your savings goal at risk.</span></div>
-        </li>
-        <li>
-          <div><strong>See the full picture</strong>
-          <span>Monthly totals, where your money went, and a chart of the last 6 months.</span></div>
-        </li>
+  <div class="auth-layout">
+    <aside class="auth-story" aria-labelledby="story-title">
+      <p class="brand">Smart Expense Tracker</p>
+      <h1 id="story-title">Know where your money goes.</h1>
+      <p class="lead">Write down what you spend. We sort it into categories, warn you before you overspend and show how your habits change.</p>
+      <ol class="flow">
+        <li><strong>You add a transaction</strong><span>"Swiggy 250" is enough.</span></li>
+        <li><strong>It is sorted for you</strong><span>The app remembers your choices and learns the rest.</span></li>
+        <li><strong>Budgets keep watch</strong><span>You get a warning before the month goes wrong.</span></li>
+        <li><strong>Analytics explain it</strong><span>Trends, unusual spending and a month-end estimate.</span></li>
       </ol>
     </aside>
 
-    <main class="auth-main">
-      <form id="auth-form" class="auth-card" novalidate>
-        <div id="notice" class="notice" role="status" hidden></div>
-        <h2 id="auth-title">Log in</h2>
+    <main id="main" class="auth-card" tabindex="-1">
+      <div class="seg" role="tablist" aria-label="Log in or create an account">
+        <button type="button" role="tab" id="tab-login" aria-controls="panel-login" aria-selected="true">Log in</button>
+        <button type="button" role="tab" id="tab-register" aria-controls="panel-register" aria-selected="false" tabindex="-1">Create account</button>
+      </div>
 
-        <div class="seg" role="group" aria-label="Choose log in or create account">
-          <button type="button" id="mode-login" aria-pressed="true">Log in</button>
-          <button type="button" id="mode-register" aria-pressed="false">Create account</button>
-        </div>
+      <p id="flash" class="notice notice-ok" role="status" hidden></p>
 
-        <label class="field">Email
-          <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
-        </label>
-
-        <label class="field">Password
-          <span class="pw-row">
-            <input id="password" type="password" autocomplete="current-password" required>
-            <button type="button" id="pw-toggle" class="pw-toggle" aria-controls="password">Show</button>
-          </span>
-        </label>
-        <p id="pw-hint" class="note" hidden>Use at least 8 characters.</p>
-
-        <label id="age-row" class="check" hidden>
-          <input id="age" type="checkbox">
-          <span>I am 18 or older, and I have read the <a href="privacy.html">privacy and data page</a>.</span>
-        </label>
-
-        <p id="auth-error" class="error" role="alert"></p>
-        <button type="submit" id="auth-submit" class="btn btn-primary">Log in</button>
+      <form id="panel-login" role="tabpanel" aria-labelledby="tab-login" novalidate>
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" autocomplete="email" required>
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+        <p id="login-error" class="form-error" role="alert"></p>
+        <button class="btn btn-primary btn-wide" id="login-submit" type="submit">Log in</button>
       </form>
 
-      <footer id="site-footer" class="site-footer"></footer>
+      <form id="panel-register" role="tabpanel" aria-labelledby="tab-register" novalidate hidden>
+        <label for="reg-email">Email</label>
+        <input id="reg-email" type="email" autocomplete="email" required>
+        <label for="reg-password">Password</label>
+        <input id="reg-password" type="password" autocomplete="new-password" aria-describedby="reg-hint" required>
+        <p id="reg-hint" class="hint">At least 8 characters.</p>
+        <label for="reg-currency">Which currency do you spend in?</label>
+        <select id="reg-currency" aria-describedby="reg-currency-hint">
+          <option value="INR">Indian rupee (&#8377;)</option>
+          <option value="GBP">British pound (&pound;)</option>
+          <option value="USD">US dollar ($)</option>
+          <option value="EUR">Euro (&euro;)</option>
+        </select>
+        <p id="reg-currency-hint" class="hint">Used for the symbol on your amounts. You can change it later in Account.</p>
+        <label class="check">
+          <input id="reg-age" type="checkbox">
+          <span>I am 16 or older and I have read the <a href="/privacy.html" target="_blank" rel="noopener">privacy notice</a>.</span>
+        </label>
+        <p id="reg-error" class="form-error" role="alert"></p>
+        <div id="reg-exists" class="notice notice-info" role="alert" hidden>
+          <span>This email already has an account.</span>
+          <button type="button" class="btn btn-small" id="reg-go-login">Log in instead</button>
+        </div>
+        <button class="btn btn-primary btn-wide" id="reg-submit" type="submit">Create account</button>
+      </form>
+
+      <p class="auth-foot"><a href="/privacy.html">Privacy notice</a> &middot; <button type="button" class="linklike" id="theme-toggle">Dark mode</button></p>
     </main>
   </div>
 
-  <script src="js/common.js"></script>
-  <script src="js/auth.js"></script>
+  <script src="/js/common.js?v=3"></script>
+  <script src="/js/auth.js?v=3"></script>
 </body>
 </html>

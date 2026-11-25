@@ -10,3 +10,6 @@ python-jose[cryptography]
 pandas
 pytest
 httpx
+scikit-learn
+joblib
+alembic
